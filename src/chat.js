@@ -75,6 +75,16 @@ class ChatHandler {
                     return;
                 }
                 this.markRequest(username);
+                const jumpMatch = msgLower.match(/прыгай\s*(\d+)?/);
+                if (jumpMatch) {
+                    const count = jumpMatch[1] ? Number(jumpMatch[1]) : 1;
+                    await this.planner.skills.jump({ count });
+                    return;
+                }
+                if (msgLower.includes('открой дверь') || msgLower.includes('открой двери')) {
+                    await this.planner.skills.open_door({});
+                    return;
+                }
                 if (msgLower.includes('режим выживания')) {
                     this.planner.setMode('survival');
                     this.bot.chat('ладно, включаю режим выживания. не мешайте, я развиваюсь.');

@@ -25,7 +25,15 @@ if (exeFiles.length === 0) {
 
 const [latest, ...oldFiles] = exeFiles;
 for (const oldFile of oldFiles) {
-    fs.unlinkSync(oldFile.fullPath);
+    try {
+        fs.unlinkSync(oldFile.fullPath);
+    } catch (err) {
+        if (err && err.code === 'EBUSY') {
+            console.error(`Locked old EXE, skipped: ${oldFile.fullPath}`);
+        } else {
+            throw err;
+        }
+    }
 }
 
 const targetExe = path.join(root, `${exePrefix}.exe`);
@@ -45,7 +53,15 @@ try {
 
 const rootOld = findExeFiles(root).filter((entry) => entry.fullPath !== targetExe);
 for (const entry of rootOld) {
-    fs.unlinkSync(entry.fullPath);
+    try {
+        fs.unlinkSync(entry.fullPath);
+    } catch (err) {
+        if (err && err.code === 'EBUSY') {
+            console.error(`Locked EXE, skipped: ${entry.fullPath}`);
+        } else {
+            throw err;
+        }
+    }
 }
 
 console.log(`Latest EXE: ${latest.name}`);

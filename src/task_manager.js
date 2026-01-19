@@ -69,10 +69,14 @@ class TaskManager {
         if (this.bot.targetDigBlock) return; // Already digging
 
         // Find closest block
-        const block = this.bot.findBlock({
+        const positions = this.bot.findBlocks({
             matching: b => b.name === task.target,
-            maxDistance: 32
+            maxDistance: 32,
+            count: 20
         });
+        const block = positions
+            .map(pos => this.bot.blockAt(pos))
+            .find(candidate => candidate && this.skills.isSafeToMine(candidate));
 
         if (!block) {
             this.bot.chat(`больше не вижу ${task.target} рядом`);

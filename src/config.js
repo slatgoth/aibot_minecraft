@@ -94,7 +94,9 @@ const baseConfig = {
         socialRoundInterval: 500000,
         perPlayerChatCooldown: 120000,
         maxFactsPerPlayer: 50,
-        etiquetteMuteMinutes: 10
+        etiquetteMuteMinutes: 10,
+        announceMemory: false,
+        safeMining: true
     }
 };
 

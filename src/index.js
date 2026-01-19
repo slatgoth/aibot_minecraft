@@ -136,6 +136,9 @@ function createBot() {
 
         const mcData = require('minecraft-data')(bot.version);
         const defaultMove = new Movements(bot, mcData);
+        defaultMove.canDig = false;
+        defaultMove.canOpenDoors = true;
+        defaultMove.allow1by1towers = false;
         bot.pathfinder.setMovements(defaultMove);
 
         skills = new Skills(bot);

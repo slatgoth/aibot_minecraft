@@ -7,7 +7,11 @@ class MemoryStore {
         this.filePath = config.paths.memory;
         this.data = {
             players: {},
-            world: {}
+            world: {
+                facts: [],
+                chat: [],
+                events: []
+            }
         };
         this.lastSaveAt = 0;
         this.load();
@@ -18,7 +22,13 @@ class MemoryStore {
             fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
             if (fs.existsSync(this.filePath)) {
                 const raw = fs.readFileSync(this.filePath, 'utf8');
-                this.data = JSON.parse(raw);
+                const parsed = JSON.parse(raw);
+                this.data = parsed || this.data;
+                if (!this.data.players) this.data.players = {};
+                if (!this.data.world) this.data.world = {};
+                if (!Array.isArray(this.data.world.facts)) this.data.world.facts = [];
+                if (!Array.isArray(this.data.world.chat)) this.data.world.chat = [];
+                if (!Array.isArray(this.data.world.events)) this.data.world.events = [];
             } else {
                 this.save();
             }
@@ -88,6 +98,7 @@ class MemoryStore {
             content
         });
         if (p.interactions.length > 50) p.interactions.shift();
+        this.logGlobalChat(username, content);
         this.save();
     }
 
@@ -121,6 +132,69 @@ class MemoryStore {
             .trim()
             .toLowerCase()
             .replace(/\s+/g, ' ');
+    }
+
+    logGlobalChat(username, content) {
+        if (!content) return;
+        this.data.world.chat.push({
+            timestamp: Date.now(),
+            username,
+            message: String(content)
+        });
+        const limit = 80;
+        if (this.data.world.chat.length > limit) {
+            this.data.world.chat.splice(0, this.data.world.chat.length - limit);
+        }
+    }
+
+    addWorldFact(fact, source = 'user') {
+        const clean = String(fact || '').trim();
+        if (!clean) return false;
+        const normalized = this.normalizeFact(clean);
+        const existing = this.data.world.facts.map(f => this.normalizeFact(f.text));
+        if (existing.includes(normalized)) return false;
+        this.data.world.facts.push({
+            timestamp: Date.now(),
+            source,
+            text: clean
+        });
+        const limit = 80;
+        if (this.data.world.facts.length > limit) {
+            this.data.world.facts.splice(0, this.data.world.facts.length - limit);
+        }
+        this.save();
+        return true;
+    }
+
+    addWorldEvent(type, text) {
+        const clean = String(text || '').trim();
+        if (!clean) return false;
+        this.data.world.events.push({
+            timestamp: Date.now(),
+            type: String(type || 'event'),
+            text: clean
+        });
+        const limit = 80;
+        if (this.data.world.events.length > limit) {
+            this.data.world.events.splice(0, this.data.world.events.length - limit);
+        }
+        this.save();
+        return true;
+    }
+
+    getWorldFacts(limit = 20) {
+        const items = this.data.world.facts || [];
+        return items.slice(-limit).map(f => f.text);
+    }
+
+    getWorldEvents(limit = 20) {
+        const items = this.data.world.events || [];
+        return items.slice(-limit);
+    }
+
+    getRecentGlobalChat(limit = 20) {
+        const items = this.data.world.chat || [];
+        return items.slice(-limit);
     }
 
     getRecentInteractions(limit = 20) {

@@ -136,6 +136,9 @@ class Planner {
         const scan = this.perception.scan();
         const memories = this.getMemoryContext(scan, null);
         const recentChat = memory.getRecentInteractions(config.behavior.maxChatHistory || 20);
+        const globalChat = memory.getRecentGlobalChat(config.behavior.maxChatHistory || 20);
+        const worldFacts = memory.getWorldFacts(20);
+        const worldEvents = memory.getWorldEvents(20);
         const socialTarget = this.getSocialTarget(scan.players);
 
         const context = {
@@ -143,6 +146,9 @@ class Planner {
              isMoving: isMoving,
              memory: memories,
              recentChat: recentChat,
+             globalChat: globalChat,
+             worldFacts: worldFacts,
+             worldEvents: worldEvents,
              socialTarget: socialTarget ? {
                  name: socialTarget.name,
                  position: socialTarget.position,
@@ -220,12 +226,18 @@ class Planner {
         const scan = this.perception.scan();
         const memories = this.getMemoryContext(scan, username);
         const recentChat = memory.getRecentInteractions(config.behavior.maxChatHistory || 20);
+        const globalChat = memory.getRecentGlobalChat(config.behavior.maxChatHistory || 20);
+        const worldFacts = memory.getWorldFacts(20);
+        const worldEvents = memory.getWorldEvents(20);
         
         const context = {
             ...scan,
             lastSender: username,
             memory: memories,
-            recentChat: recentChat
+            recentChat: recentChat,
+            globalChat: globalChat,
+            worldFacts: worldFacts,
+            worldEvents: worldEvents
         };
         const promptParts = [
             `Игрок ${username} пишет: "${message}".`,

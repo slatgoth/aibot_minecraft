@@ -83,6 +83,7 @@ class Observer {
         if (!this.canComment()) return;
         if (this.bot.isRaining) {
             // Simple triggers can remain static or also use LLM if needed, but static is faster
+            memory.addWorldEvent('weather', 'идет дождь');
             const phrases = [
                 "опять дождь, пора под крышу",
                 "мокро и скользко, аккуратнее",
@@ -105,6 +106,7 @@ class Observer {
         if (!this.canComment()) return;
         if (!oldBlock || !newBlock) return;
         if (this.valuableBlocks.includes(oldBlock.name) && newBlock.name === 'air') {
+            memory.addWorldEvent('resource', `добыли ${oldBlock.name}`);
             this.bot.chat("о, ресурсы. пригодится на крафт");
         }
     }
@@ -112,6 +114,7 @@ class Observer {
     async handleSystemMessage(message, json) {
         if (message.includes('died') || message.includes('slain') || message.includes('умер')) {
             if (!this.canComment()) return;
+            memory.addWorldEvent('death', message);
             this.bot.chat("F. надеюсь ты не брал кредит на броню");
         }
     }
