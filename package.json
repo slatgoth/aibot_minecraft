@@ -1,7 +1,8 @@
 {
   "name": "minecraft-llm-bot",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Minecraft bot based on Mineflayer and Ollama (DeepSeek)",
+  "author": "slatgoth <slatgoth@gmail.com>",
   "main": "electron/main.js",
   "scripts": {
     "start": "node src/index.js",
@@ -36,6 +37,12 @@
       "prompts/**",
       "data/**",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "tools/viaproxy",
+        "to": "viaproxy"
+      }
     ],
     "win": {
       "signAndEditExecutable": false,

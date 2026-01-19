@@ -7,3 +7,5 @@ prompts/system_prompt.txt
 *.log
 dist/
 build/
+tools/viaproxy/logs/
+Minecraft LLM Bot*.lnk

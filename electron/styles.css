@@ -77,6 +77,11 @@ input, select, textarea {
   color: var(--text);
 }
 
+input:disabled {
+  background: #f0ece7;
+  color: #8a8176;
+}
+
 textarea {
   width: 100%;
   resize: vertical;

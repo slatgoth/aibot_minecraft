@@ -45,6 +45,16 @@ const baseConfig = {
         contextWindow: 8192,
         temperature: 0.7
     },
+    viaProxy: {
+        root: '',
+        jar: '',
+        javaPath: '',
+        args: '',
+        autoStart: true
+    },
+    launcher: {
+        autoStartBot: true
+    },
     paths: {
         memory: path.join(repoRoot, 'data/memory.json'),
         logs: path.join(repoRoot, 'logs'),

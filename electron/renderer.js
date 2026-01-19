@@ -12,6 +12,12 @@ const fields = {
     ollamaModel: qs('ollamaModel'),
     ollamaContext: qs('ollamaContext'),
     ollamaTemperature: qs('ollamaTemperature'),
+    viaProxyRoot: qs('viaProxyRoot'),
+    viaProxyJar: qs('viaProxyJar'),
+    javaPath: qs('javaPath'),
+    viaProxyArgs: qs('viaProxyArgs'),
+    autoStartProxy: qs('autoStartProxy'),
+    autoStartBot: qs('autoStartBot'),
     defaultMode: qs('defaultMode'),
     commandPrefixes: qs('commandPrefixes'),
     chatCooldown: qs('chatCooldown'),
@@ -21,7 +27,13 @@ const fields = {
     perPlayerChatCooldown: qs('perPlayerChatCooldown'),
     maxFactsPerPlayer: qs('maxFactsPerPlayer'),
     etiquetteMuteMinutes: qs('etiquetteMuteMinutes'),
-    systemPrompt: qs('systemPrompt')
+    systemPrompt: qs('systemPrompt'),
+    currentUsername: qs('currentUsername'),
+    newUsername: qs('newUsername'),
+    currentMode: qs('currentMode'),
+    liveMode: qs('liveMode'),
+    liveChat: qs('liveChat'),
+    liveCommand: qs('liveCommand')
 };
 
 const proxyStatus = qs('proxyStatus');
@@ -30,6 +42,9 @@ const modelSelect = qs('modelSelect');
 const modelHint = qs('modelHint');
 const promptSource = qs('promptSource');
 const saveStatus = qs('saveStatus');
+const viaProxyRunStatus = qs('viaProxyRunStatus');
+const botRunStatus = qs('botRunStatus');
+const botStatusHint = qs('botStatusHint');
 
 const readNumber = (value, fallback) => {
     const parsed = Number(value);
@@ -44,7 +59,7 @@ const parsePrefixes = (raw) => {
         .filter(Boolean);
 };
 
-const fillForm = (config) => {
+const fillForm = (config, defaults) => {
     fields.botHost.value = config.bot?.host || '';
     fields.botPort.value = config.bot?.port ?? '';
     fields.botUsername.value = config.bot?.username || '';
@@ -59,7 +74,16 @@ const fillForm = (config) => {
     fields.ollamaContext.value = config.llm?.contextWindow ?? '';
     fields.ollamaTemperature.value = config.llm?.temperature ?? '';
 
+    const viaProxy = config.viaProxy || {};
+    fields.viaProxyRoot.value = viaProxy.root || viaProxy.path || defaults?.viaProxyRoot || '';
+    fields.viaProxyJar.value = viaProxy.jar || defaults?.viaProxyJar || '';
+    fields.javaPath.value = viaProxy.javaPath || '';
+    fields.viaProxyArgs.value = Array.isArray(viaProxy.args) ? viaProxy.args.join(' ') : (viaProxy.args || '');
+    fields.autoStartProxy.value = String(Boolean(viaProxy.autoStart));
+    fields.autoStartBot.value = String(Boolean(config.launcher?.autoStartBot));
+
     fields.defaultMode.value = config.behavior?.defaultMode || 'manual';
+    fields.liveMode.value = config.behavior?.defaultMode || 'manual';
     fields.commandPrefixes.value = (config.behavior?.commandPrefixes || []).join(', ');
     fields.chatCooldown.value = config.behavior?.chatCooldown ?? '';
     fields.globalChatCooldown.value = config.behavior?.globalChatCooldown ?? '';
@@ -88,6 +112,16 @@ const buildConfigPayload = () => {
             defaultModel: fields.ollamaModel.value.trim(),
             contextWindow: readNumber(fields.ollamaContext.value, 8192),
             temperature: readNumber(fields.ollamaTemperature.value, 0.7)
+        },
+        viaProxy: {
+            root: fields.viaProxyRoot.value.trim(),
+            jar: fields.viaProxyJar.value.trim(),
+            javaPath: fields.javaPath.value.trim(),
+            args: fields.viaProxyArgs.value.trim(),
+            autoStart: fields.autoStartProxy.value === 'true'
+        },
+        launcher: {
+            autoStartBot: fields.autoStartBot.value === 'true'
         },
         behavior: {
             defaultMode: fields.defaultMode.value,
@@ -163,11 +197,68 @@ const saveAll = async () => {
     await savePrompt();
 };
 
+const updateBotStatus = (status) => {
+    if (!status || !status.running) {
+        botRunStatus.textContent = 'остановлен';
+        fields.currentUsername.value = '';
+        fields.currentMode.value = '';
+        botStatusHint.textContent = '';
+        return;
+    }
+    botRunStatus.textContent = 'работает';
+    fields.currentUsername.value = status.username || '';
+    fields.currentMode.value = status.mode || '';
+    const hp = status.health ?? '-';
+    const food = status.food ?? '-';
+    const pos = status.position ? `${status.position.x},${status.position.y},${status.position.z}` : '-';
+    botStatusHint.textContent = `HP: ${hp} | Food: ${food} | Pos: ${pos}`;
+};
+
+const refreshProcessStatuses = async () => {
+    const botStatus = await window.api.getBotStatus();
+    updateBotStatus(botStatus);
+    const proxyStatus = await window.api.getViaProxyStatus();
+    viaProxyRunStatus.textContent = proxyStatus.running ? 'работает' : 'остановлен';
+};
+
+const startBot = async () => {
+    await saveConfig();
+    const result = await window.api.startBot();
+    botRunStatus.textContent = result.status || 'запускается';
+};
+
+const stopBot = async () => {
+    const result = await window.api.stopBot();
+    botRunStatus.textContent = result.status || 'останавливается';
+};
+
+const startViaProxy = async () => {
+    await saveConfig();
+    const result = await window.api.startViaProxy();
+    viaProxyRunStatus.textContent = result.status || 'запускается';
+};
+
+const stopViaProxy = async () => {
+    const result = await window.api.stopViaProxy();
+    viaProxyRunStatus.textContent = result.status || 'останавливается';
+};
+
+const applyUsername = async () => {
+    const newName = fields.newUsername.value.trim();
+    if (!newName) return;
+    fields.botUsername.value = newName;
+    await saveConfig();
+    const result = await window.api.restartBot();
+    botStatusHint.textContent = result.ok ? 'бот перезапускается с новым ником' : `ошибка: ${result.error || 'не удалось'}`;
+    fields.newUsername.value = '';
+};
+
 const init = async () => {
     const configResult = await window.api.loadConfig();
-    fillForm(configResult.config);
+    fillForm(configResult.config, configResult.defaults);
     await loadPrompt();
     await refreshModels();
+    await refreshProcessStatuses();
 };
 
 qs('saveConfigBtn').addEventListener('click', saveConfig);
@@ -175,6 +266,32 @@ qs('savePromptBtn').addEventListener('click', savePrompt);
 qs('saveAllBtn').addEventListener('click', saveAll);
 qs('refreshModelsBtn').addEventListener('click', refreshModels);
 qs('checkProxyBtn').addEventListener('click', checkProxy);
+qs('startBotBtn').addEventListener('click', startBot);
+qs('stopBotBtn').addEventListener('click', stopBot);
+qs('startViaProxyBtn').addEventListener('click', startViaProxy);
+qs('stopViaProxyBtn').addEventListener('click', stopViaProxy);
+qs('applyUsernameBtn').addEventListener('click', applyUsername);
+qs('setModeBtn').addEventListener('click', async () => {
+    await window.api.botCommand('set_mode', { mode: fields.liveMode.value });
+});
+qs('stopTasksBtn').addEventListener('click', async () => {
+    await window.api.botCommand('stop_tasks', {});
+});
+qs('sendChatBtn').addEventListener('click', async () => {
+    const text = fields.liveChat.value.trim();
+    if (!text) return;
+    await window.api.botCommand('chat', { text });
+    fields.liveChat.value = '';
+});
+qs('sendCommandBtn').addEventListener('click', async () => {
+    const text = fields.liveCommand.value.trim();
+    if (!text) return;
+    await window.api.botCommand('user_command', { text });
+    fields.liveCommand.value = '';
+});
+qs('reloadPromptBtn').addEventListener('click', async () => {
+    await window.api.botCommand('reload_prompt', {});
+});
 qs('useModelBtn').addEventListener('click', () => {
     if (modelSelect.value) {
         fields.ollamaModel.value = modelSelect.value;
@@ -194,5 +311,11 @@ qs('loadDefaultPromptBtn').addEventListener('click', async () => {
     fields.systemPrompt.value = defaultPrompt.text || '';
     promptSource.textContent = `Источник: по умолчанию (${defaultPrompt.path})`;
 });
+
+window.api.onBotStatus(updateBotStatus);
+window.api.onProxyError((payload) => {
+    viaProxyRunStatus.textContent = payload && payload.error ? `ошибка: ${payload.error}` : 'ошибка запуска';
+});
+setInterval(refreshProcessStatuses, 5000);
 
 init();

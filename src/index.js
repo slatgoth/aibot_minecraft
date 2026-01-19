@@ -15,10 +15,40 @@ const llm = require('./llm_client');
 const Reflexes = require('./reflexes');
 const Observer = require('./observer');
 
+let bot = null;
+let planner = null;
+let skills = null;
+let perception = null;
+let pendingMode = null;
+let idleInterval = null;
+
+const sendToParent = (payload) => {
+    if (typeof process.send === 'function') {
+        process.send(payload);
+    }
+};
+
+const getStatus = () => {
+    if (!bot) {
+        return { running: false };
+    }
+    const pos = bot.entity ? bot.entity.position : null;
+    return {
+        running: true,
+        username: bot.username,
+        mode: planner ? planner.mode : null,
+        spawned: !!bot.entity,
+        health: bot.health,
+        food: bot.food,
+        position: pos ? { x: Math.floor(pos.x), y: Math.floor(pos.y), z: Math.floor(pos.z) } : null
+    };
+};
+
 function createBot() {
+    if (bot) return bot;
     logger.info('Starting bot...');
-    
-    const bot = mineflayer.createBot({
+
+    bot = mineflayer.createBot({
         host: config.bot.host,
         port: config.bot.port,
         username: config.bot.username,
@@ -36,14 +66,14 @@ function createBot() {
     // Initialize modules once spawned
     bot.once('spawn', () => {
         logger.info('Bot spawned!');
-        
+
         const mcData = require('minecraft-data')(bot.version);
         const defaultMove = new Movements(bot, mcData);
         bot.pathfinder.setMovements(defaultMove);
 
-        const skills = new Skills(bot);
-        const perception = new Perception(bot);
-        const planner = new Planner(bot, skills, perception);
+        skills = new Skills(bot);
+        perception = new Perception(bot);
+        planner = new Planner(bot, skills, perception);
         const chatHandler = new ChatHandler(bot, planner);
         const reflexes = new Reflexes(bot, planner);
         const observer = new Observer(bot);
@@ -52,14 +82,19 @@ function createBot() {
         planner.start();
         reflexes.start();
         observer.start();
-        
+
+        if (pendingMode) {
+            planner.setMode(pendingMode);
+            pendingMode = null;
+        }
+
         // Init LLM
         llm.init().then(() => logger.info('LLM initialized'));
 
         // Idle behavior: Look at nearest player
-        setInterval(() => {
+        idleInterval = setInterval(() => {
             if (bot.pathfinder.isMoving()) return;
-            
+
             const entity = bot.nearestEntity(e => e.type === 'player');
             if (entity && entity.position.distanceTo(bot.entity.position) < 5) {
                 bot.lookAt(entity.position.offset(0, entity.height, 0));
@@ -67,15 +102,87 @@ function createBot() {
         }, 100);
 
         bot.on('death', () => {
-             logger.warn('Bot died');
-             // Anti-lose logic can be added here
+            logger.warn('Bot died');
         });
+
+        sendToParent({ type: 'bot_status', data: getStatus() });
     });
 
-    bot.on('kicked', console.log);
-    bot.on('error', console.log);
-    
+    bot.on('kicked', (reason) => {
+        logger.error('Bot kicked', reason);
+        sendToParent({ type: 'bot_status', data: getStatus() });
+    });
+    bot.on('error', (err) => {
+        logger.error('Bot error', err);
+        sendToParent({ type: 'bot_status', data: getStatus() });
+    });
+    bot.on('end', () => {
+        if (idleInterval) clearInterval(idleInterval);
+        bot = null;
+        planner = null;
+        skills = null;
+        perception = null;
+        sendToParent({ type: 'bot_status', data: getStatus() });
+    });
+
     return bot;
 }
 
-createBot();
+const setMode = (mode) => {
+    if (planner) {
+        planner.setMode(mode);
+        sendToParent({ type: 'bot_status', data: getStatus() });
+        return true;
+    }
+    pendingMode = mode;
+    return false;
+};
+
+const handleCommand = async (message) => {
+    if (!message || typeof message !== 'object') return;
+    const { type, payload, requestId } = message;
+
+    if (type === 'get_status') {
+        sendToParent({ type: 'bot_status', data: getStatus(), requestId });
+        return;
+    }
+
+    if (!bot) {
+        sendToParent({ type: 'bot_error', error: 'bot not running', requestId });
+        return;
+    }
+
+    if (type === 'chat') {
+        if (payload && payload.text) {
+            bot.chat(String(payload.text));
+        }
+    } else if (type === 'set_mode') {
+        const mode = payload && payload.mode;
+        if (mode) setMode(mode);
+    } else if (type === 'stop_tasks') {
+        if (planner && planner.taskManager) {
+            planner.taskManager.stopTask();
+        }
+        if (bot.pathfinder) bot.pathfinder.setGoal(null);
+    } else if (type === 'reload_prompt') {
+        llm.systemPrompt = llm.buildSystemPrompt();
+        sendToParent({ type: 'bot_status', data: getStatus() });
+    } else if (type === 'shutdown') {
+        bot.quit('shutdown');
+    } else if (type === 'user_command') {
+        const text = payload && payload.text;
+        if (text && planner) {
+            await planner.processUserRequest('panel', text);
+        }
+    }
+};
+
+process.on('message', (message) => {
+    handleCommand(message).catch((err) => {
+        logger.error('Command handling failed', err);
+    });
+});
+
+if (require.main === module) {
+    createBot();
+}

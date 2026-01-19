@@ -35,6 +35,36 @@
     </section>
 
     <section class="card">
+      <h2>Запуск</h2>
+      <div class="status-grid">
+        <div>
+          <div class="label">ViaProxy процесс</div>
+          <div id="viaProxyRunStatus" class="status">остановлен</div>
+          <div class="actions">
+            <button id="startViaProxyBtn" class="primary">Запустить ViaProxy</button>
+            <button id="stopViaProxyBtn" class="ghost">Остановить</button>
+          </div>
+        </div>
+        <div>
+          <div class="label">Бот процесс</div>
+          <div id="botRunStatus" class="status">остановлен</div>
+          <div class="actions">
+            <button id="startBotBtn" class="primary">Запустить бота</button>
+            <button id="stopBotBtn" class="ghost">Остановить</button>
+          </div>
+        </div>
+      </div>
+      <div class="grid">
+        <label>Автостарт бота
+          <select id="autoStartBot">
+            <option value="true">да</option>
+            <option value="false">нет</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <section class="card">
       <h2>Подключение бота</h2>
       <div class="grid">
         <label>BOT_HOST<input id="botHost" type="text" /></label>
@@ -52,6 +82,23 @@
         <label>MC_SERVER_PORT<input id="serverPort" type="number" /></label>
       </div>
       <p class="hint">Для работы бот подключается к локальному прокси (BOT_HOST/BOT_PORT). Серверные данные нужны для справки.</p>
+    </section>
+
+    <section class="card">
+      <h2>ViaProxy запуск</h2>
+      <div class="grid">
+        <label>Папка ViaProxy<input id="viaProxyRoot" type="text" /></label>
+        <label>JAR ViaProxy<input id="viaProxyJar" type="text" /></label>
+        <label>Java путь (опционально)<input id="javaPath" type="text" /></label>
+        <label>Аргументы (через пробел)<input id="viaProxyArgs" type="text" /></label>
+        <label>Автостарт ViaProxy
+          <select id="autoStartProxy">
+            <option value="true">да</option>
+            <option value="false">нет</option>
+          </select>
+        </label>
+      </div>
+      <p class="hint">ViaProxy запускается через Java: `java -jar ViaProxy-*.jar`.</p>
     </section>
 
     <section class="card">
@@ -92,6 +139,33 @@
         <label>maxFactsPerPlayer<input id="maxFactsPerPlayer" type="number" /></label>
         <label>etiquetteMuteMinutes<input id="etiquetteMuteMinutes" type="number" /></label>
       </div>
+    </section>
+
+    <section class="card">
+      <h2>Управление ботом</h2>
+      <div class="grid">
+        <label>Текущий ник<input id="currentUsername" type="text" disabled /></label>
+        <label>Новый ник<input id="newUsername" type="text" /></label>
+        <label>Текущий режим<input id="currentMode" type="text" disabled /></label>
+        <label>Режим
+          <select id="liveMode">
+            <option value="manual">manual</option>
+            <option value="autonomous">autonomous</option>
+            <option value="survival">survival</option>
+          </select>
+        </label>
+        <label>Сообщение в чат<input id="liveChat" type="text" /></label>
+        <label>Команда боту (LLM)<input id="liveCommand" type="text" /></label>
+      </div>
+      <div class="actions">
+        <button id="applyUsernameBtn" class="ghost">Сменить ник (перезапуск)</button>
+        <button id="sendChatBtn" class="primary">Отправить чат</button>
+        <button id="sendCommandBtn" class="ghost">Команда LLM</button>
+        <button id="setModeBtn" class="ghost">Сменить режим</button>
+        <button id="stopTasksBtn" class="ghost">Остановить задачи</button>
+        <button id="reloadPromptBtn" class="ghost">Перезагрузить prompt</button>
+      </div>
+      <div id="botStatusHint" class="hint"></div>
     </section>
 
     <section class="card">
