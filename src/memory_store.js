@@ -10,7 +10,8 @@ class MemoryStore {
             world: {
                 facts: [],
                 chat: [],
-                events: []
+                events: [],
+                placedBlocks: []
             }
         };
         this.lastSaveAt = 0;
@@ -25,10 +26,7 @@ class MemoryStore {
                 const parsed = JSON.parse(raw);
                 this.data = parsed || this.data;
                 if (!this.data.players) this.data.players = {};
-                if (!this.data.world) this.data.world = {};
-                if (!Array.isArray(this.data.world.facts)) this.data.world.facts = [];
-                if (!Array.isArray(this.data.world.chat)) this.data.world.chat = [];
-                if (!Array.isArray(this.data.world.events)) this.data.world.events = [];
+                this.data = this.normalizeData(this.data);
             } else {
                 this.save();
             }
@@ -45,6 +43,39 @@ class MemoryStore {
         } catch (e) {
             console.error('Memory save error:', e);
         }
+    }
+
+    normalizeData(data) {
+        const output = data && typeof data === 'object' ? data : {};
+        if (!output.players || typeof output.players !== 'object') output.players = {};
+        if (!output.world || typeof output.world !== 'object') output.world = {};
+        if (!Array.isArray(output.world.facts)) output.world.facts = [];
+        if (!Array.isArray(output.world.chat)) output.world.chat = [];
+        if (!Array.isArray(output.world.events)) output.world.events = [];
+        if (!Array.isArray(output.world.placedBlocks)) output.world.placedBlocks = [];
+        return output;
+    }
+
+    replaceData(data) {
+        this.data = this.normalizeData(data);
+        this.save();
+    }
+
+    reloadFromDisk() {
+        try {
+            if (!fs.existsSync(this.filePath)) return false;
+            const raw = fs.readFileSync(this.filePath, 'utf8');
+            const parsed = JSON.parse(raw);
+            this.data = this.normalizeData(parsed);
+            return true;
+        } catch (e) {
+            console.error('Memory reload error:', e);
+            return false;
+        }
+    }
+
+    getData() {
+        return this.data;
     }
 
     getPlayer(username) {
@@ -180,6 +211,55 @@ class MemoryStore {
         }
         this.save();
         return true;
+    }
+
+    markBlockPlaced(position, name, by) {
+        if (!position) return false;
+        const entry = {
+            key: `${Math.floor(position.x)},${Math.floor(position.y)},${Math.floor(position.z)}`,
+            x: Math.floor(position.x),
+            y: Math.floor(position.y),
+            z: Math.floor(position.z),
+            name: String(name || ''),
+            by: by ? String(by) : null,
+            timestamp: Date.now()
+        };
+        const list = this.data.world.placedBlocks || [];
+        if (!list.find(item => item.key === entry.key)) {
+            list.push(entry);
+        }
+        const limit = 250;
+        if (list.length > limit) {
+            list.splice(0, list.length - limit);
+        }
+        this.data.world.placedBlocks = list;
+        this.save();
+        return true;
+    }
+
+    isPlayerPlaced(block) {
+        if (!block || !block.position) return false;
+        const key = `${Math.floor(block.position.x)},${Math.floor(block.position.y)},${Math.floor(block.position.z)}`;
+        const list = this.data.world.placedBlocks || [];
+        return list.some(item => item.key === key);
+    }
+
+    getPlacedBlocksNear(position, radius = 16, limit = 20) {
+        if (!position) return [];
+        const r = Number(radius) || 16;
+        const list = this.data.world.placedBlocks || [];
+        const results = [];
+        for (const item of list) {
+            const dx = item.x - position.x;
+            const dy = item.y - position.y;
+            const dz = item.z - position.z;
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (dist <= r) {
+                results.push({ ...item, distance: Number(dist.toFixed(1)) });
+            }
+            if (results.length >= limit) break;
+        }
+        return results;
     }
 
     getWorldFacts(limit = 20) {

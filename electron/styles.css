@@ -123,6 +123,14 @@ textarea.log-output {
   box-shadow: none;
 }
 
+textarea.memory-editor {
+  margin-top: 8px;
+  font-family: "Consolas", "Courier New", monospace;
+  font-size: 12px;
+  min-height: 220px;
+  background: #f8f2e8;
+}
+
 .actions {
   display: flex;
   align-items: center;

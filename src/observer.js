@@ -145,6 +145,16 @@ class Observer {
     async handleBlockUpdate(oldBlock, newBlock) {
         if (!this.canComment()) return;
         if (!oldBlock || !newBlock) return;
+        if (oldBlock.name === 'air' && newBlock.name !== 'air') {
+            const placer = this.bot.nearestEntity(e => {
+                if (!e || e.type !== 'player') return false;
+                if (e.username === this.bot.username) return false;
+                return e.position.distanceTo(newBlock.position) < 6;
+            });
+            if (placer) {
+                memory.markBlockPlaced(newBlock.position, newBlock.name, placer.username || placer.name);
+            }
+        }
         if (this.valuableBlocks.includes(oldBlock.name) && newBlock.name === 'air') {
             memory.addWorldEvent('resource', `добыли ${oldBlock.name}`);
             this.bot.chat("о, ресурсы. пригодится на крафт");

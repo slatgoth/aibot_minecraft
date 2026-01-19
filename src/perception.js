@@ -5,6 +5,45 @@ class Perception {
         this.bot = bot;
     }
 
+    isStructureBlockName(name) {
+        if (!name) return false;
+        const patterns = [
+            'planks', 'brick', 'bricks', 'stairs', 'slab', 'wall', 'fence', 'gate',
+            'door', 'trapdoor', 'glass', 'pane', 'torch', 'lantern', 'bed', 'carpet',
+            'banner', 'sign', 'chest', 'barrel', 'furnace', 'crafting_table', 'anvil',
+            'smithing', 'enchanting', 'loom', 'cartography', 'stonecutter',
+            'grindstone', 'lectern', 'jukebox', 'composter', 'beehive', 'beacon',
+            'concrete', 'terracotta', 'wool', 'glazed', 'prismarine', 'quartz',
+            'deepslate_bricks', 'polished', 'smooth', 'tiles'
+        ];
+        return patterns.some(p => name.includes(p));
+    }
+
+    readSignText(block) {
+        if (!block) return '';
+        const raw = block.signText || block._signText || block.text || null;
+        if (!raw && block.nbt && block.nbt.value && block.nbt.value.Text1) {
+            try {
+                const lines = ['Text1', 'Text2', 'Text3', 'Text4']
+                    .map(key => block.nbt.value[key]?.value || '')
+                    .filter(Boolean);
+                return lines.join(' ').trim();
+            } catch (e) {
+                return '';
+            }
+        }
+        if (Array.isArray(raw)) return raw.filter(Boolean).join(' ').trim();
+        if (raw && typeof raw.getText === 'function') {
+            const lines = raw.getText();
+            if (Array.isArray(lines)) return lines.filter(Boolean).join(' ').trim();
+        }
+        if (raw && raw.lines && Array.isArray(raw.lines)) {
+            return raw.lines.filter(Boolean).join(' ').trim();
+        }
+        if (typeof raw === 'string') return raw.trim();
+        return '';
+    }
+
     scan() {
         const bot = this.bot;
         const pos = bot.entity.position;
@@ -21,12 +60,32 @@ class Perception {
 
         const blocks = bot.findBlocks({
             matching: (block) => block.type !== 0, // Not air
-            maxDistance: 5,
-            count: 10
-        }).map(p => {
-            const b = bot.blockAt(p);
-            return b.name;
-        });
+            maxDistance: 6,
+            count: 24
+        }).map(p => bot.blockAt(p)).filter(Boolean);
+
+        const structureBlocks = new Set();
+        const naturalBlocks = new Set();
+        const signs = [];
+        for (const block of blocks) {
+            if (block.name && block.name.includes('sign')) {
+                const text = this.readSignText(block);
+                signs.push({
+                    name: block.name,
+                    text,
+                    position: {
+                        x: Math.floor(block.position.x),
+                        y: Math.floor(block.position.y),
+                        z: Math.floor(block.position.z)
+                    }
+                });
+            }
+            if (this.isStructureBlockName(block.name)) {
+                structureBlocks.add(block.name);
+            } else {
+                naturalBlocks.add(block.name);
+            }
+        }
 
         const players = Object.values(bot.players).map(p => {
             const name = p.username;
@@ -64,12 +123,19 @@ class Perception {
             };
         });
 
+        const blockNames = blocks.map(b => b.name);
+        const uniqueBlocks = [...new Set(blockNames)];
+
         return {
             time: bot.time.timeOfDay,
             isDay: bot.time.isDay,
             biome: bot.blockAt(pos)?.biome?.name || 'unknown',
             nearbyEntities: entities,
-            nearbyBlocks: [...new Set(blocks)], // unique
+            nearbyBlocks: uniqueBlocks,
+            nearbyStructures: Array.from(structureBlocks),
+            nearbyNatural: Array.from(naturalBlocks),
+            nearbySigns: signs,
+            playerPlacedBlocks: memory.getPlacedBlocksNear(pos, 16, 20),
             players,
             playersOnline: players.map(p => p.name),
             health: bot.health,

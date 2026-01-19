@@ -43,6 +43,35 @@ const writeJsonSafe = (filePath, data) => {
     writeFileSafe(filePath, serialized);
 };
 
+const normalizeMemory = (data) => {
+    const output = data && typeof data === 'object' ? data : {};
+    if (!output.players || typeof output.players !== 'object') output.players = {};
+    if (!output.world || typeof output.world !== 'object') output.world = {};
+    if (!Array.isArray(output.world.facts)) output.world.facts = [];
+    if (!Array.isArray(output.world.chat)) output.world.chat = [];
+    if (!Array.isArray(output.world.events)) output.world.events = [];
+    if (!Array.isArray(output.world.placedBlocks)) output.world.placedBlocks = [];
+    return output;
+};
+
+const getMemoryPath = () => {
+    return (currentConfig.paths && currentConfig.paths.memory) || config.paths.memory;
+};
+
+const readMemoryFile = () => {
+    const memoryPath = getMemoryPath();
+    try {
+        if (!fs.existsSync(memoryPath)) {
+            return { ok: true, path: memoryPath, data: normalizeMemory({}) };
+        }
+        const raw = fs.readFileSync(memoryPath, 'utf8');
+        const parsed = JSON.parse(raw);
+        return { ok: true, path: memoryPath, data: normalizeMemory(parsed) };
+    } catch (e) {
+        return { ok: false, error: e.message, path: memoryPath, data: normalizeMemory({}) };
+    }
+};
+
 const sendLog = (channel, text) => {
     if (!mainWindow || !text) return;
     mainWindow.webContents.send(channel, { text: String(text) });
@@ -604,4 +633,22 @@ ipcMain.handle('open-logs-folder', async () => {
     const logsRoot = (currentConfig.paths && currentConfig.paths.logs) || config.paths.logs;
     const result = await shell.openPath(logsRoot);
     return { ok: result === '', path: logsRoot, error: result || null };
+});
+
+ipcMain.handle('get-memory', async () => {
+    return readMemoryFile();
+});
+
+ipcMain.handle('save-memory', async (_, payload) => {
+    const memoryPath = getMemoryPath();
+    try {
+        const normalized = normalizeMemory(payload);
+        writeJsonSafe(memoryPath, normalized);
+        if (botProcess) {
+            botProcess.send({ type: 'memory_reload' });
+        }
+        return { ok: true, path: memoryPath };
+    } catch (e) {
+        return { ok: false, error: e.message, path: memoryPath };
+    }
 });

@@ -249,6 +249,39 @@
     </section>
 
     <section class="card">
+      <h2>Память</h2>
+      <div class="grid">
+        <label>Автообновление
+          <select id="memoryAutoRefresh">
+            <option value="true">да</option>
+            <option value="false">нет</option>
+          </select>
+        </label>
+        <label>Автосохранение
+          <select id="memoryAutoSave">
+            <option value="true">да</option>
+            <option value="false">нет</option>
+          </select>
+        </label>
+        <label>Игрок (очистить)<input id="memoryPlayerName" type="text" /></label>
+        <label>Факт мира<input id="memoryWorldFact" type="text" /></label>
+        <label>Событие мира<input id="memoryWorldEvent" type="text" /></label>
+      </div>
+      <div class="actions">
+        <button id="memoryReloadBtn" class="ghost">Загрузить</button>
+        <button id="memorySaveBtn" class="primary">Сохранить</button>
+        <button id="memoryClearChatBtn" class="ghost">Очистить общий чат</button>
+        <button id="memoryClearEventsBtn" class="ghost">Очистить события</button>
+        <button id="memoryClearAllBtn" class="ghost">Сбросить всё</button>
+        <button id="memoryClearPlayerBtn" class="ghost">Очистить игрока</button>
+        <button id="memoryAddFactBtn" class="ghost">Добавить факт</button>
+        <button id="memoryAddEventBtn" class="ghost">Добавить событие</button>
+      </div>
+      <textarea id="memoryText" class="memory-editor" rows="16"></textarea>
+      <div id="memoryStatus" class="hint"></div>
+    </section>
+
+    <section class="card">
       <h2>Сохранение</h2>
       <div class="actions">
         <button id="saveConfigBtn" class="primary">Сохранить конфиг</button>

@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('api', {
     stopViaProxy: () => ipcRenderer.invoke('stop-viaproxy'),
     getViaProxyStatus: () => ipcRenderer.invoke('viaproxy-status'),
     openLogsFolder: () => ipcRenderer.invoke('open-logs-folder'),
+    getMemory: () => ipcRenderer.invoke('get-memory'),
+    saveMemory: (payload) => ipcRenderer.invoke('save-memory', payload),
     onBotStatus: (handler) => ipcRenderer.on('bot-status', (_, status) => handler(status)),
     onBotError: (handler) => ipcRenderer.on('bot-error', (_, payload) => handler(payload)),
     onProxyError: (handler) => ipcRenderer.on('proxy-error', (_, payload) => handler(payload)),

@@ -86,6 +86,10 @@ class ChatHandler {
                     await this.planner.skills.open_door({});
                     return;
                 }
+                if (msgLower.includes('прочитай табличку') || msgLower.includes('прочитай таблички')) {
+                    await this.planner.skills.read_sign({});
+                    return;
+                }
                 if (msgLower.includes('режим выживания')) {
                     this.planner.setMode('survival');
                     this.bot.chat('ладно, включаю режим выживания. не мешайте, я развиваюсь.');

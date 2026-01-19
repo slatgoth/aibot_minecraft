@@ -14,6 +14,7 @@ const ChatHandler = require('./chat');
 const llm = require('./llm_client');
 const Reflexes = require('./reflexes');
 const Observer = require('./observer');
+const memory = require('./memory_store');
 
 let bot = null;
 let planner = null;
@@ -258,6 +259,8 @@ const handleCommand = async (message) => {
     } else if (type === 'reload_prompt') {
         llm.systemPrompt = llm.buildSystemPrompt();
         sendToParent({ type: 'bot_status', data: getStatus() });
+    } else if (type === 'memory_reload') {
+        memory.reloadFromDisk();
     } else if (type === 'shutdown') {
         shuttingDown = true;
         bot.quit('shutdown');

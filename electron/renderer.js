@@ -58,10 +58,20 @@ const botRunStatus = qs('botRunStatus');
 const botStatusHint = qs('botStatusHint');
 const botLog = qs('botLog');
 const proxyLog = qs('proxyLog');
+const memoryText = qs('memoryText');
+const memoryStatus = qs('memoryStatus');
+const memoryAutoRefresh = qs('memoryAutoRefresh');
+const memoryAutoSave = qs('memoryAutoSave');
+const memoryPlayerName = qs('memoryPlayerName');
+const memoryWorldFact = qs('memoryWorldFact');
+const memoryWorldEvent = qs('memoryWorldEvent');
 
 const botLogBuffer = [];
 const proxyLogBuffer = [];
 const maxLogLines = 200;
+let memoryDirty = false;
+let memoryRefreshTimer = null;
+let memorySaveTimer = null;
 
 const readNumber = (value, fallback) => {
     const parsed = Number(value);
@@ -86,6 +96,81 @@ const parsePrefixes = (raw) => {
         .split(',')
         .map(p => p.trim())
         .filter(Boolean);
+};
+
+const normalizeMemory = (data) => {
+    const output = data && typeof data === 'object' ? data : {};
+    if (!output.players || typeof output.players !== 'object') output.players = {};
+    if (!output.world || typeof output.world !== 'object') output.world = {};
+    if (!Array.isArray(output.world.facts)) output.world.facts = [];
+    if (!Array.isArray(output.world.chat)) output.world.chat = [];
+    if (!Array.isArray(output.world.events)) output.world.events = [];
+    if (!Array.isArray(output.world.placedBlocks)) output.world.placedBlocks = [];
+    return output;
+};
+
+const memoryStats = (data) => {
+    const players = Object.keys(data.players || {}).length;
+    const facts = (data.world && data.world.facts ? data.world.facts.length : 0);
+    const chat = (data.world && data.world.chat ? data.world.chat.length : 0);
+    const events = (data.world && data.world.events ? data.world.events.length : 0);
+    const placed = (data.world && data.world.placedBlocks ? data.world.placedBlocks.length : 0);
+    return `Игроки: ${players} | Факты: ${facts} | Чат: ${chat} | События: ${events} | Блоки: ${placed}`;
+};
+
+const loadMemory = async () => {
+    const result = await window.api.getMemory();
+    if (!result.ok) {
+        memoryStatus.textContent = result.error || 'ошибка загрузки памяти';
+        return;
+    }
+    const normalized = normalizeMemory(result.data);
+    if (!memoryDirty) {
+        memoryText.value = JSON.stringify(normalized, null, 2);
+    }
+    memoryStatus.textContent = `${memoryStats(normalized)} | ${result.path}`;
+    memoryDirty = false;
+};
+
+const saveMemory = async (override) => {
+    let data = override;
+    if (!data) {
+        try {
+            data = JSON.parse(memoryText.value || '{}');
+        } catch (e) {
+            memoryStatus.textContent = `ошибка JSON: ${e.message}`;
+            return;
+        }
+    }
+    const normalized = normalizeMemory(data);
+    const result = await window.api.saveMemory(normalized);
+    if (!result.ok) {
+        memoryStatus.textContent = result.error || 'ошибка сохранения памяти';
+        return;
+    }
+    memoryStatus.textContent = `сохранено | ${memoryStats(normalized)}`;
+    memoryDirty = false;
+};
+
+const scheduleAutoSave = () => {
+    if (memorySaveTimer) clearTimeout(memorySaveTimer);
+    if (memoryAutoSave.value !== 'true') return;
+    memorySaveTimer = setTimeout(() => {
+        saveMemory();
+    }, 1200);
+};
+
+const setMemoryRefresh = (enabled) => {
+    if (memoryRefreshTimer) {
+        clearInterval(memoryRefreshTimer);
+        memoryRefreshTimer = null;
+    }
+    if (!enabled) return;
+    memoryRefreshTimer = setInterval(() => {
+        if (!memoryDirty) {
+            loadMemory();
+        }
+    }, 5000);
 };
 
 const fillForm = (config, defaults) => {
@@ -393,6 +478,89 @@ qs('loadDefaultPromptBtn').addEventListener('click', async () => {
     promptSource.textContent = `Источник: по умолчанию (${defaultPrompt.path})`;
 });
 
+qs('memoryReloadBtn').addEventListener('click', loadMemory);
+qs('memorySaveBtn').addEventListener('click', () => saveMemory());
+qs('memoryClearChatBtn').addEventListener('click', async () => {
+    let data;
+    try {
+        data = JSON.parse(memoryText.value || '{}');
+    } catch (e) {
+        memoryStatus.textContent = `ошибка JSON: ${e.message}`;
+        return;
+    }
+    data = normalizeMemory(data);
+    data.world.chat = [];
+    await saveMemory(data);
+});
+qs('memoryClearEventsBtn').addEventListener('click', async () => {
+    let data;
+    try {
+        data = JSON.parse(memoryText.value || '{}');
+    } catch (e) {
+        memoryStatus.textContent = `ошибка JSON: ${e.message}`;
+        return;
+    }
+    data = normalizeMemory(data);
+    data.world.events = [];
+    await saveMemory(data);
+});
+qs('memoryClearAllBtn').addEventListener('click', async () => {
+    const cleared = normalizeMemory({});
+    await saveMemory(cleared);
+    memoryText.value = JSON.stringify(cleared, null, 2);
+});
+qs('memoryClearPlayerBtn').addEventListener('click', async () => {
+    const player = (memoryPlayerName.value || '').trim();
+    if (!player) return;
+    let data;
+    try {
+        data = JSON.parse(memoryText.value || '{}');
+    } catch (e) {
+        memoryStatus.textContent = `ошибка JSON: ${e.message}`;
+        return;
+    }
+    data = normalizeMemory(data);
+    delete data.players[player];
+    await saveMemory(data);
+});
+qs('memoryAddFactBtn').addEventListener('click', async () => {
+    const text = (memoryWorldFact.value || '').trim();
+    if (!text) return;
+    let data;
+    try {
+        data = JSON.parse(memoryText.value || '{}');
+    } catch (e) {
+        memoryStatus.textContent = `ошибка JSON: ${e.message}`;
+        return;
+    }
+    data = normalizeMemory(data);
+    data.world.facts.push({ timestamp: Date.now(), source: 'panel', text });
+    memoryWorldFact.value = '';
+    await saveMemory(data);
+});
+qs('memoryAddEventBtn').addEventListener('click', async () => {
+    const text = (memoryWorldEvent.value || '').trim();
+    if (!text) return;
+    let data;
+    try {
+        data = JSON.parse(memoryText.value || '{}');
+    } catch (e) {
+        memoryStatus.textContent = `ошибка JSON: ${e.message}`;
+        return;
+    }
+    data = normalizeMemory(data);
+    data.world.events.push({ timestamp: Date.now(), type: 'panel', text });
+    memoryWorldEvent.value = '';
+    await saveMemory(data);
+});
+
+memoryText.addEventListener('input', () => {
+    memoryDirty = true;
+    scheduleAutoSave();
+});
+memoryAutoRefresh.addEventListener('change', () => setMemoryRefresh(memoryAutoRefresh.value === 'true'));
+memoryAutoSave.addEventListener('change', scheduleAutoSave);
+
 window.api.onBotStatus(updateBotStatus);
 window.api.onBotError((payload) => {
     botStatusHint.textContent = payload && payload.error ? `ошибка бота: ${payload.error}` : 'ошибка запуска бота';
@@ -409,3 +577,5 @@ window.api.onProxyLog((payload) => {
 setInterval(refreshProcessStatuses, 5000);
 
 init();
+loadMemory();
+setMemoryRefresh(true);

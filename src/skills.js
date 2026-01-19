@@ -69,6 +69,7 @@ class Skills {
     isSafeToMine(block) {
         if (!block || !block.position || !block.name) return false;
         if (config.behavior && config.behavior.safeMining === false) return true;
+        if (memory.isPlayerPlaced(block)) return false;
         if (this.isStructureBlockName(block.name)) return false;
         if (!this.isLikelyNaturalBlock(block)) return false;
 
@@ -329,6 +330,57 @@ class Skills {
         } catch (e) {
             logger.error("Activate failed", e);
         }
+    }
+
+    async read_sign(args = {}) {
+        const maxDistance = Number.isFinite(Number(args.maxDistance)) ? Number(args.maxDistance) : 6;
+        const signBlock = this.bot.findBlock({
+            matching: (block) => block && block.name && block.name.includes('sign'),
+            maxDistance
+        });
+        if (!signBlock) {
+            this.bot.chat('таблички не вижу');
+            return;
+        }
+        try {
+            await this.bot.pathfinder.goto(new goals.GoalNear(signBlock.position.x, signBlock.position.y, signBlock.position.z, 2));
+            const text = this.extractSignText(signBlock);
+            if (text) {
+                memory.addWorldFact(`Табличка: ${text}`, 'sign');
+                if (!args.silent) {
+                    this.bot.chat(`табличка: ${text}`);
+                }
+            } else {
+                this.bot.chat('не удалось прочитать табличку');
+            }
+        } catch (e) {
+            logger.error('Read sign failed', e);
+        }
+    }
+
+    extractSignText(block) {
+        if (!block) return '';
+        const raw = block.signText || block._signText || block.text || null;
+        if (!raw && block.nbt && block.nbt.value && block.nbt.value.Text1) {
+            try {
+                const lines = ['Text1', 'Text2', 'Text3', 'Text4']
+                    .map(key => block.nbt.value[key]?.value || '')
+                    .filter(Boolean);
+                return lines.join(' ').trim();
+            } catch (e) {
+                return '';
+            }
+        }
+        if (Array.isArray(raw)) return raw.filter(Boolean).join(' ').trim();
+        if (raw && typeof raw.getText === 'function') {
+            const lines = raw.getText();
+            if (Array.isArray(lines)) return lines.filter(Boolean).join(' ').trim();
+        }
+        if (raw && raw.lines && Array.isArray(raw.lines)) {
+            return raw.lines.filter(Boolean).join(' ').trim();
+        }
+        if (typeof raw === 'string') return raw.trim();
+        return '';
     }
 
     async open_door(args = {}) {
