@@ -10,7 +10,7 @@
    - Запусти сервер: `ollama serve`
    - Скачай модель: `ollama pull deepseek-llm` (или свою)
 3. Скачай **EXE** из Releases (самый свежий):
-   - https://github.com/slatgoth/aibot_minecraft-v.1.1/releases
+   - https://github.com/slatgoth/aibot_minecraft/releases
 4. Запусти EXE из архива Releases.
 5. Настрой ViaProxy:
    - Открой `tools\viaproxy\viaproxy.yml` (или скопируй `tools\viaproxy` в отдельную папку и укажи её в панели).
