@@ -107,6 +107,18 @@ const checkTcp = async (host, port) => {
     });
 };
 
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+const waitForPort = async (host, port, timeoutMs = 15000, intervalMs = 1000) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const result = await checkTcp(host, port);
+        if (result.ok) return true;
+        await sleep(intervalMs);
+    }
+    return false;
+};
+
 const findViaProxyJar = (root) => {
     try {
         if (!root || !fs.existsSync(root)) return null;
@@ -171,8 +183,20 @@ const stopViaProxy = () => {
 
 const getBotEntry = () => path.join(app.getAppPath(), 'src', 'index.js');
 
-const startBot = () => {
+const startBot = async () => {
     if (botProcess) return { ok: true, status: 'already_running' };
+    const botConfig = currentConfig.bot || config.bot;
+    const launcher = currentConfig.launcher || {};
+    const waitForProxy = launcher.waitForProxy !== false;
+    const waitTimeout = Number.isFinite(Number(launcher.waitForProxyTimeoutMs))
+        ? Number(launcher.waitForProxyTimeoutMs)
+        : 15000;
+    if (waitForProxy) {
+        const ready = await waitForPort(botConfig.host, botConfig.port, waitTimeout, 1000);
+        if (!ready) {
+            return { ok: false, error: 'proxy/port not ready' };
+        }
+    }
     const entry = getBotEntry();
     botProcess = fork(entry, [], {
         env: {
@@ -277,7 +301,7 @@ app.whenReady().then(() => {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
     if (currentConfig.launcher && currentConfig.launcher.autoStartBot) {
-        startBot();
+        startBot().catch(() => {});
     }
 });
 

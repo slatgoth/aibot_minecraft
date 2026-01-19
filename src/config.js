@@ -58,7 +58,9 @@ const baseConfig = {
         maxReconnectAttempts: 0
     },
     launcher: {
-        autoStartBot: true
+        autoStartBot: true,
+        waitForProxy: true,
+        waitForProxyTimeoutMs: 15000
     },
     paths: {
         memory: path.join(repoRoot, 'data/memory.json'),

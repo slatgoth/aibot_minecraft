@@ -21,6 +21,8 @@ const fields = {
     autoReconnect: qs('autoReconnect'),
     reconnectDelayMs: qs('reconnectDelayMs'),
     maxReconnectAttempts: qs('maxReconnectAttempts'),
+    waitForProxy: qs('waitForProxy'),
+    waitForProxyTimeoutMs: qs('waitForProxyTimeoutMs'),
     defaultMode: qs('defaultMode'),
     commandPrefixes: qs('commandPrefixes'),
     chatCooldown: qs('chatCooldown'),
@@ -87,6 +89,8 @@ const fillForm = (config, defaults) => {
     fields.autoReconnect.value = String(config.connection?.autoReconnect !== false);
     fields.reconnectDelayMs.value = config.connection?.reconnectDelayMs ?? 5000;
     fields.maxReconnectAttempts.value = config.connection?.maxReconnectAttempts ?? 0;
+    fields.waitForProxy.value = String(config.launcher?.waitForProxy !== false);
+    fields.waitForProxyTimeoutMs.value = config.launcher?.waitForProxyTimeoutMs ?? 15000;
 
     fields.defaultMode.value = config.behavior?.defaultMode || 'manual';
     fields.liveMode.value = config.behavior?.defaultMode || 'manual';
@@ -132,7 +136,9 @@ const buildConfigPayload = () => {
             maxReconnectAttempts: readNumber(fields.maxReconnectAttempts.value, 0)
         },
         launcher: {
-            autoStartBot: fields.autoStartBot.value === 'true'
+            autoStartBot: fields.autoStartBot.value === 'true',
+            waitForProxy: fields.waitForProxy.value === 'true',
+            waitForProxyTimeoutMs: readNumber(fields.waitForProxyTimeoutMs.value, 15000)
         },
         behavior: {
             defaultMode: fields.defaultMode.value,

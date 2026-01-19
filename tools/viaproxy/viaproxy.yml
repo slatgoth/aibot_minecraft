@@ -2,10 +2,10 @@
 
 # The address ViaProxy should listen for connections.
 # This option is not reloadable.
-bind-address: 0.0.0.0:25568
+bind-address: 127.0.0.1:25568
 
 # The address of the server ViaProxy should connect to.
-target-address: maryflorett.aternos.me.:18658
+target-address: example.com:25565
 
 # The version ViaProxy should translate to. (See ViaProxy GUI for a list of versions)
 target-version: Auto Detect (1.7+ servers)
@@ -20,7 +20,7 @@ proxy-online-mode: false
 # The authentication method to use for joining the target server.
 # none: No authentication (Offline mode)
 # account: Use an account for joining the target server. (Has to be configured in ViaProxy GUI)
-auth-method: ACCOUNT
+auth-method: NONE
 
 # The GUI account list index (0 indexed) of the account if the auth method is set to account.
 minecraft-account-index: 0

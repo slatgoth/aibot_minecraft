@@ -115,6 +115,13 @@
         </label>
         <label>Задержка переподключения (мс)<input id="reconnectDelayMs" type="number" /></label>
         <label>Лимит попыток (0 = бесконечно)<input id="maxReconnectAttempts" type="number" /></label>
+        <label>Ожидать прокси при запуске
+          <select id="waitForProxy">
+            <option value="true">да</option>
+            <option value="false">нет</option>
+          </select>
+        </label>
+        <label>Таймаут ожидания (мс)<input id="waitForProxyTimeoutMs" type="number" /></label>
       </div>
       <p class="hint">Если соединение сбросилось (ECONNRESET), бот автоматически переподключится.</p>
     </section>
