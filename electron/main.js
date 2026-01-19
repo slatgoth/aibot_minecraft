@@ -6,9 +6,10 @@ const { execFile } = require('child_process');
 
 const config = require('../src/config');
 
-const configPath = path.join(app.getAppPath(), 'config.user.json');
+const userDataRoot = app.getPath('userData');
+const configPath = path.join(userDataRoot, 'config.user.json');
 const promptDefaultPath = path.join(app.getAppPath(), 'prompts', 'system_prompt.default.txt');
-const promptUserPath = path.join(app.getAppPath(), 'prompts', 'system_prompt.txt');
+const promptUserPath = path.join(userDataRoot, 'system_prompt.txt');
 
 const readFileSafe = (filePath) => {
     try {

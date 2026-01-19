@@ -5,3 +5,5 @@ config.user.json
 prompts/system_prompt.txt
 .env
 *.log
+dist/
+build/

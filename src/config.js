@@ -11,7 +11,20 @@ const envNumber = (value, fallback) => {
     return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const configPath = path.join(__dirname, '../config.user.json');
+const repoRoot = path.join(__dirname, '..');
+
+const getUserDataRoot = () => {
+    if (process.env.APPDATA) {
+        return path.join(process.env.APPDATA, 'minecraft-llm-bot');
+    }
+    const home = process.env.HOME || process.env.USERPROFILE;
+    if (home) return path.join(home, 'minecraft-llm-bot');
+    return null;
+};
+
+const userDataRoot = getUserDataRoot();
+const configPathRepo = path.join(repoRoot, 'config.user.json');
+const configPathUserData = userDataRoot ? path.join(userDataRoot, 'config.user.json') : null;
 
 const baseConfig = {
     bot: {
@@ -33,12 +46,15 @@ const baseConfig = {
         temperature: 0.7
     },
     paths: {
-        memory: path.join(__dirname, '../data/memory.json'),
-        logs: path.join(__dirname, '../logs'),
-        items: path.join(__dirname, '../data/minecraft_1.21.11_blocks_items_en.json'),
-        recipes: path.join(__dirname, '../data/mineflayer_recipes_minecraft_1.21.11.json'),
-        systemPromptDefault: path.join(__dirname, '../prompts/system_prompt.default.txt'),
-        systemPrompt: path.join(__dirname, '../prompts/system_prompt.txt')
+        memory: path.join(repoRoot, 'data/memory.json'),
+        logs: path.join(repoRoot, 'logs'),
+        items: path.join(repoRoot, 'data/minecraft_1.21.11_blocks_items_en.json'),
+        recipes: path.join(repoRoot, 'data/mineflayer_recipes_minecraft_1.21.11.json'),
+        systemPromptDefault: path.join(repoRoot, 'prompts/system_prompt.default.txt'),
+        systemPrompt: path.join(repoRoot, 'prompts/system_prompt.txt'),
+        systemPromptUser: userDataRoot ? path.join(userDataRoot, 'system_prompt.txt') : null,
+        userConfig: configPathRepo,
+        userConfigAlt: configPathUserData
     },
     behavior: {
         defaultMode: 'manual', // 'manual' or 'autonomous'
@@ -53,10 +69,10 @@ const baseConfig = {
     }
 };
 
-const loadUserConfig = () => {
+const loadUserConfig = (filePath) => {
     try {
-        if (!fs.existsSync(configPath)) return {};
-        const raw = fs.readFileSync(configPath, 'utf8');
+        if (!filePath || !fs.existsSync(filePath)) return {};
+        const raw = fs.readFileSync(filePath, 'utf8');
         return JSON.parse(raw);
     } catch (e) {
         return {};
@@ -107,7 +123,15 @@ const applyEnvOverrides = (config) => {
     if (process.env.OLLAMA_TEMPERATURE) config.llm.temperature = envNumber(process.env.OLLAMA_TEMPERATURE, config.llm.temperature);
 };
 
-const userConfig = loadUserConfig();
+const envConfigPath = process.env.BOT_CONFIG_PATH ? path.resolve(process.env.BOT_CONFIG_PATH) : null;
+const resolvedConfigPath = (() => {
+    if (envConfigPath && fs.existsSync(envConfigPath)) return envConfigPath;
+    if (configPathUserData && fs.existsSync(configPathUserData)) return configPathUserData;
+    if (fs.existsSync(configPathRepo)) return configPathRepo;
+    return envConfigPath || configPathUserData || configPathRepo;
+})();
+
+const userConfig = loadUserConfig(resolvedConfigPath);
 const merged = deepMerge(baseConfig, userConfig);
 applyEnvOverrides(merged);
 merged.behavior.commandPrefixes = normalizePrefixes(merged.behavior.commandPrefixes);

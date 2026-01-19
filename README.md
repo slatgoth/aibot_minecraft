@@ -39,7 +39,14 @@
 ```bash
 npm run app
 ```
-Данные сохраняются в `config.user.json` и `prompts/system_prompt.txt` (эти файлы в .gitignore).
+Данные сохраняются в `config.user.json` и `system_prompt.txt` в папке пользовательских данных приложения
+(`%APPDATA%\\minecraft-llm-bot` на Windows). Эти файлы в `.gitignore`.
+
+## Сборка Windows .exe
+```bash
+npm run dist
+```
+Готовый `.exe` будет в `dist/`. Для панели рекомендуется portable-сборка.
 
 ## Установка
 ```bash
@@ -76,4 +83,6 @@ node src/index.js
 - `src/config.js`: конфигурация подключения и LLM.
 - `data/memory.example.json`: шаблон памяти, локально создаётся `data/memory.json`.
 - `config.user.json`: пользовательские настройки (создаётся панелью).
-- `prompts/system_prompt.txt`: пользовательский system prompt (создаётся панелью).
+- `prompts/system_prompt.txt`: пользовательский system prompt (если создаётся рядом с проектом).
+- `%APPDATA%\\minecraft-llm-bot\\config.user.json`: настройки панели (Windows).
+- `%APPDATA%\\minecraft-llm-bot\\system_prompt.txt`: system prompt панели (Windows).

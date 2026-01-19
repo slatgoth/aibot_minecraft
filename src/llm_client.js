@@ -95,7 +95,8 @@ class LLMClient {
     }
 
     buildSystemPrompt() {
-        const userPrompt = this.loadPromptFromFile(config.paths.systemPrompt);
+        const userPrompt = this.loadPromptFromFile(config.paths.systemPromptUser)
+            || this.loadPromptFromFile(config.paths.systemPrompt);
         if (userPrompt) return this.applyPromptTemplate(userPrompt);
         const fallback = this.loadPromptFromFile(config.paths.systemPromptDefault);
         if (fallback) return this.applyPromptTemplate(fallback);
