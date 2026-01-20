@@ -5,6 +5,8 @@ class Perception {
     constructor(bot) {
         this.bot = bot;
         this.itemParser = require('prismarine-item')(bot.version);
+        this.lastScanAt = 0;
+        this.lastScan = null;
     }
 
     isStructureBlockName(name) {
@@ -79,8 +81,35 @@ class Perception {
         };
     }
 
-    scan() {
+    scan(options = {}) {
         const bot = this.bot;
+        const cacheMs = Number.isFinite(Number(config.behavior.scanCacheMs))
+            ? Number(config.behavior.scanCacheMs)
+            : 0;
+        const now = Date.now();
+        if (!options.force && this.lastScan && cacheMs > 0 && now - this.lastScanAt < cacheMs) {
+            return this.lastScan;
+        }
+        if (!bot.entity || !bot.entity.position) {
+            return this.lastScan || {
+                time: 0,
+                isDay: true,
+                biome: 'unknown',
+                nearbyEntities: [],
+                nearbyBlocks: [],
+                nearbyStructures: [],
+                nearbyNatural: [],
+                nearbySigns: [],
+                nearbyDrops: [],
+                playerPlacedBlocks: [],
+                players: [],
+                playersOnline: [],
+                health: bot.health ?? 20,
+                food: bot.food ?? 20,
+                inventory: bot.inventory ? bot.inventory.items().map(i => `${i.name} x${i.count}`) : [],
+                position: null
+            };
+        }
         const pos = bot.entity.position;
         const behavior = config.behavior || {};
         const entityRadius = Number.isFinite(Number(behavior.scanRadiusEntities)) ? Number(behavior.scanRadiusEntities) : 36;
@@ -170,7 +199,7 @@ class Perception {
         const blockNames = blocks.map(b => b.name);
         const uniqueBlocks = [...new Set(blockNames)];
 
-        return {
+        const result = {
             time: bot.time.timeOfDay,
             isDay: bot.time.isDay,
             biome: bot.blockAt(pos)?.biome?.name || 'unknown',
@@ -188,6 +217,9 @@ class Perception {
             inventory: bot.inventory.items().map(i => `${i.name} x${i.count}`),
             position: { x: Math.floor(pos.x), y: Math.floor(pos.y), z: Math.floor(pos.z) }
         };
+        this.lastScan = result;
+        this.lastScanAt = now;
+        return result;
     }
 }
 

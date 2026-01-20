@@ -2,6 +2,7 @@ const { goals } = require('mineflayer-pathfinder');
 const { logger, sleep } = require('./utils');
 const config = require('./config');
 const Vec3 = require('vec3');
+const fs = require('fs');
 
 const memory = require('./memory_store');
 
@@ -32,18 +33,166 @@ const ITEM_ALIASES = new Map([
     ['золото', 'gold_ore']
 ]);
 
+const WOOD_SYNONYMS = [
+    { term: 'бледный дуб', prefix: 'pale_oak' },
+    { term: 'светлый дуб', prefix: 'pale_oak' },
+    { term: 'тёмный дуб', prefix: 'dark_oak' },
+    { term: 'темный дуб', prefix: 'dark_oak' },
+    { term: 'мангров', prefix: 'mangrove' },
+    { term: 'вишн', prefix: 'cherry' },
+    { term: 'берёз', prefix: 'birch' },
+    { term: 'берез', prefix: 'birch' },
+    { term: 'джунгл', prefix: 'jungle' },
+    { term: 'акаци', prefix: 'acacia' },
+    { term: 'елов', prefix: 'spruce' },
+    { term: 'ель', prefix: 'spruce' },
+    { term: 'сосн', prefix: 'spruce' },
+    { term: 'багров', prefix: 'crimson' },
+    { term: 'искаж', prefix: 'warped' },
+    { term: 'бамбук', prefix: 'bamboo' },
+    { term: 'дуб', prefix: 'oak' },
+    { term: 'oak', prefix: 'oak' },
+    { term: 'spruce', prefix: 'spruce' },
+    { term: 'birch', prefix: 'birch' },
+    { term: 'jungle', prefix: 'jungle' },
+    { term: 'acacia', prefix: 'acacia' },
+    { term: 'dark oak', prefix: 'dark_oak' },
+    { term: 'dark_oak', prefix: 'dark_oak' },
+    { term: 'mangrove', prefix: 'mangrove' },
+    { term: 'cherry', prefix: 'cherry' },
+    { term: 'crimson', prefix: 'crimson' },
+    { term: 'warped', prefix: 'warped' },
+    { term: 'bamboo', prefix: 'bamboo' },
+    { term: 'pale oak', prefix: 'pale_oak' },
+    { term: 'pale_oak', prefix: 'pale_oak' }
+];
+
+const WOOD_FORMS = [
+    { keywords: ['лодка с сундуком', 'лодка сундук', 'chest boat'], type: 'chest_boat' },
+    { keywords: ['плот с сундуком', 'плот сундук', 'chest raft'], type: 'chest_raft' },
+    { keywords: ['подвесная табличка', 'висячая табличка', 'свисающая табличка', 'hanging sign'], type: 'hanging_sign' },
+    { keywords: ['настенная табличка', 'табличка на стене', 'wall sign'], type: 'wall_sign' },
+    { keywords: ['нажимная плита', 'pressure plate'], type: 'pressure_plate' },
+    { keywords: ['кнопка', 'button'], type: 'button' },
+    { keywords: ['калитка', 'fence gate', 'gate'], type: 'fence_gate' },
+    { keywords: ['забор', 'fence'], type: 'fence' },
+    { keywords: ['люк', 'trapdoor'], type: 'trapdoor' },
+    { keywords: ['дверь', 'door'], type: 'door' },
+    { keywords: ['лестница', 'ступени', 'ступеньки', 'stairs'], type: 'stairs' },
+    { keywords: ['полублок', 'плита', 'slab'], type: 'slab' },
+    { keywords: ['доски', 'доска', 'planks'], type: 'planks' },
+    { keywords: ['обтесан', 'очищен', 'stripped'], type: 'stripped' },
+    { keywords: ['бревно', 'бревна', 'брёвна', 'бревен', 'брёвен', 'лог', 'log'], type: 'log' },
+    { keywords: ['древесина', 'wood'], type: 'wood' },
+    { keywords: ['мозаика', 'mosaic'], type: 'mosaic' },
+    { keywords: ['табличка', 'sign'], type: 'sign' },
+    { keywords: ['листья', 'leaves'], type: 'leaves' },
+    { keywords: ['саженец', 'sapling'], type: 'sapling' },
+    { keywords: ['плот', 'лодка', 'boat', 'raft'], type: 'boat' }
+];
+
+const loadItemIdSet = () => {
+    const filePath = config.paths && config.paths.items ? config.paths.items : null;
+    if (!filePath || !fs.existsSync(filePath)) return new Set();
+    try {
+        const raw = fs.readFileSync(filePath, 'utf8');
+        const data = JSON.parse(raw);
+        const ids = new Set();
+        for (const entry of data) {
+            if (!entry || typeof entry !== 'object') continue;
+            const rawId = entry.name || entry.id;
+            if (!rawId) continue;
+            const id = String(rawId).includes(':') ? String(rawId).split(':').pop() : String(rawId);
+            ids.add(id);
+        }
+        return ids;
+    } catch (e) {
+        return new Set();
+    }
+};
+
+const ITEM_ID_SET = loadItemIdSet();
+
 class Skills {
     constructor(bot) {
         this.bot = bot;
         this.lastWanderAt = 0;
         this.lastWanderTarget = null;
         this.followHistory = new Map();
+        this.lastFollowAt = new Map();
+        this.lastRememberAt = new Map();
+        this.lastRememberFact = new Map();
         this.itemParser = require('prismarine-item')(bot.version);
+    }
+
+    findWoodPrefix(text) {
+        if (!text) return null;
+        const raw = String(text).toLowerCase();
+        for (const entry of WOOD_SYNONYMS) {
+            if (raw.includes(entry.term)) return entry.prefix;
+        }
+        return null;
+    }
+
+    resolveWoodItem(text) {
+        if (!text) return null;
+        const raw = String(text).toLowerCase();
+        const prefix = this.findWoodPrefix(raw);
+        if (!prefix) return null;
+
+        let form = null;
+        for (const entry of WOOD_FORMS) {
+            if (entry.keywords.some(keyword => raw.includes(keyword))) {
+                form = entry.type;
+                break;
+            }
+        }
+        if (!form) return null;
+
+        const wantsStripped = form === 'stripped';
+        const hasLogWord = /брев|лог/.test(raw);
+        const hasWoodWord = /древесин/.test(raw);
+        let candidate = null;
+
+        if (wantsStripped) {
+            if (hasWoodWord) {
+                candidate = `stripped_${prefix}_wood`;
+            } else {
+                candidate = `stripped_${prefix}_log`;
+            }
+        } else if (form === 'boat' || form === 'chest_boat' || form === 'chest_raft') {
+            if (prefix === 'bamboo') {
+                candidate = form === 'chest_boat' || form === 'chest_raft'
+                    ? 'bamboo_chest_raft'
+                    : 'bamboo_raft';
+            } else {
+                candidate = form === 'chest_boat' ? `${prefix}_chest_boat` : `${prefix}_boat`;
+            }
+        } else if (form === 'mosaic') {
+            if (prefix !== 'bamboo') return null;
+            if (/плит/.test(raw)) {
+                candidate = 'bamboo_mosaic_slab';
+            } else if (/ступен|лестниц/.test(raw)) {
+                candidate = 'bamboo_mosaic_stairs';
+            } else {
+                candidate = 'bamboo_mosaic';
+            }
+        } else {
+            candidate = `${prefix}_${form}`;
+        }
+
+        if (!candidate) return null;
+        if (ITEM_ID_SET.size > 0 && !ITEM_ID_SET.has(candidate)) {
+            return null;
+        }
+        return candidate;
     }
 
     normalizeItemName(name) {
         if (!name) return name;
         const raw = String(name).toLowerCase().trim();
+        const woodResolved = this.resolveWoodItem(raw);
+        if (woodResolved) return woodResolved;
         if (ITEM_ALIASES.has(raw)) return ITEM_ALIASES.get(raw);
         const normalized = raw.replace(/\s+/g, '_');
         if (ITEM_ALIASES.has(normalized)) return ITEM_ALIASES.get(normalized);
@@ -153,7 +302,20 @@ class Skills {
             logger.warn('remember_fact missing data');
             return;
         }
+        const now = Date.now();
+        const cooldownMs = config.behavior.rememberFactCooldownMs || 0;
+        const normalized = memory.normalizeFact ? memory.normalizeFact(fact) : String(fact || '').trim().toLowerCase();
+        const lastAt = this.lastRememberAt.get(player_name) || 0;
+        if (this.lastRememberFact.get(player_name) === normalized) {
+            return;
+        }
+        if (cooldownMs > 0 && now - lastAt < cooldownMs) {
+            return;
+        }
+
         memory.addFact(player_name, fact);
+        this.lastRememberAt.set(player_name, now);
+        this.lastRememberFact.set(player_name, normalized);
         if (config.behavior && config.behavior.announceMemory) {
             this.bot.chat(`запомнил про ${player_name}: ${fact}`);
         }
@@ -262,6 +424,12 @@ class Skills {
                     memory.markBlockPlaced(targetPos, name, this.bot.username);
                     return true;
                 } catch (e) {
+                    await sleep(200);
+                    const placed = this.bot.blockAt(targetPos);
+                    if (placed && placed.name === name) {
+                        memory.markBlockPlaced(targetPos, name, this.bot.username);
+                        return true;
+                    }
                     logger.error(`Place block failed`, e);
                 }
             }
@@ -446,6 +614,7 @@ class Skills {
 
     async open_door(args = {}) {
         const maxDistance = Number.isFinite(Number(args.maxDistance)) ? Number(args.maxDistance) : 4;
+        const silent = Boolean(args.silent);
         const door = this.bot.findBlock({
             matching: (block) => {
                 if (!block || !block.name) return false;
@@ -455,19 +624,27 @@ class Skills {
         });
 
         if (!door) {
-            this.bot.chat('двери не вижу рядом');
-            return;
+            if (!silent) {
+                this.bot.chat('двери не вижу рядом');
+            }
+            return false;
         }
 
         try {
             await this.bot.pathfinder.goto(new goals.GoalNear(door.position.x, door.position.y, door.position.z, 2));
+            const props = typeof door.getProperties === 'function' ? door.getProperties() : door.properties;
+            if (props && props.open === true) {
+                return true;
+            }
             if (typeof this.bot.openDoor === 'function') {
                 await this.bot.openDoor(door);
             } else {
                 await this.bot.activateBlock(door);
             }
+            return true;
         } catch (e) {
             logger.error('Open door failed', e);
+            return false;
         }
     }
 
@@ -619,13 +796,34 @@ class Skills {
             return;
         }
 
+        const nearbyDoor = this.bot.findBlock({
+            matching: (block) => {
+                if (!block || !block.name) return false;
+                return block.name.includes('door') || block.name.includes('trapdoor') || block.name.includes('gate');
+            },
+            maxDistance: 4
+        });
+        if (nearbyDoor) {
+            const props = typeof nearbyDoor.getProperties === 'function' ? nearbyDoor.getProperties() : nearbyDoor.properties;
+            if (!props || props.open !== true) {
+                await this.open_door({ maxDistance: 4, silent: true });
+            }
+        }
+
         const targetUsername = target.username || target.name || targetName;
         if (memory.isMuted(targetUsername)) {
             return;
         }
+
+        const now = Date.now();
+        const followCooldownMs = config.behavior.followCooldownMs || 0;
+        const lastFollowAt = this.lastFollowAt.get(targetUsername) || 0;
+        if (followCooldownMs > 0 && now - lastFollowAt < followCooldownMs) {
+            return;
+        }
+        this.lastFollowAt.set(targetUsername, now);
         
         let targetLabel = target.username || target.name || targetName || 'player';
-        const now = Date.now();
         const windowMs = 15000;
         const entry = this.followHistory.get(targetLabel) || { count: 0, lastAt: 0 };
         if (now - entry.lastAt < windowMs) {
@@ -706,15 +904,38 @@ class Skills {
     async placeBlockNear(itemName) {
         const item = this.bot.inventory.items().find(i => i.name === itemName);
         if (!item) return false;
+
+        const attemptPlace = async (supportBlock, faceVector, targetPos) => {
+            if (!supportBlock) return false;
+            try {
+                await this.bot.equip(item, 'hand');
+                await this.bot.placeBlock(supportBlock, faceVector);
+            } catch (e) {
+                await sleep(200);
+                const placed = this.bot.blockAt(targetPos);
+                if (placed && placed.name === itemName) {
+                    memory.markBlockPlaced(targetPos, itemName, this.bot.username);
+                    return true;
+                }
+                logger.error('Place block near failed', e);
+                return false;
+            }
+            const placed = this.bot.blockAt(targetPos);
+            if (placed && placed.name === itemName) {
+                memory.markBlockPlaced(targetPos, itemName, this.bot.username);
+                return true;
+            }
+            return false;
+        };
+
         const below = this.bot.blockAt(this.bot.entity.position.offset(0, -1, 0));
         if (below && below.boundingBox !== 'empty') {
             const above = this.bot.blockAt(below.position.offset(0, 1, 0));
             if (above && above.boundingBox === 'empty') {
                 try {
-                    await this.bot.equip(item, 'hand');
-                    await this.bot.placeBlock(below, new Vec3(0, 1, 0));
-                    memory.markBlockPlaced(below.position.offset(0, 1, 0), itemName, this.bot.username);
-                    return true;
+                    const targetPos = below.position.offset(0, 1, 0);
+                    const placed = await attemptPlace(below, new Vec3(0, 1, 0), targetPos);
+                    if (placed) return true;
                 } catch (e) {
                     logger.error('Place block near failed', e);
                 }
@@ -731,14 +952,13 @@ class Skills {
         if (!targetBlock || targetBlock.boundingBox !== 'empty') return false;
         try {
             await this.bot.pathfinder.goto(new goals.GoalNear(support.position.x, support.position.y, support.position.z, 2));
-            await this.bot.equip(item, 'hand');
-            await this.bot.placeBlock(support, new Vec3(0, 1, 0));
-            memory.markBlockPlaced(support.position.offset(0, 1, 0), itemName, this.bot.username);
-            return true;
+            const placed = await attemptPlace(support, new Vec3(0, 1, 0), target);
+            if (placed) return true;
         } catch (e) {
             logger.error('Place block near failed', e);
             return false;
         }
+        return false;
     }
 
     async ensureCraftingTable() {

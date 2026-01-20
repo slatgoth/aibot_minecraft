@@ -1,5 +1,6 @@
 const { goals } = require('mineflayer-pathfinder');
 const { logger } = require('./utils');
+const training = require('./training_store');
 
 class Reflexes {
     constructor(bot, planner) {
@@ -50,6 +51,8 @@ class Reflexes {
     }
 
     async checkThreats() {
+        const overrides = training.getBehaviorOverrides();
+        if (overrides && overrides.fleeCreeper === false) return;
         // Creeper reflex
         const creeper = this.bot.nearestEntity(e => e.name === 'creeper' && e.position.distanceTo(this.bot.entity.position) < 4);
         if (creeper) {

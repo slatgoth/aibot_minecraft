@@ -14,7 +14,9 @@ const ChatHandler = require('./chat');
 const llm = require('./llm_client');
 const Reflexes = require('./reflexes');
 const Observer = require('./observer');
+const SpeechManager = require('./speech_manager');
 const memory = require('./memory_store');
+const training = require('./training_store');
 
 let bot = null;
 let planner = null;
@@ -23,6 +25,7 @@ let perception = null;
 let chatHandler = null;
 let reflexes = null;
 let observer = null;
+let speechManager = null;
 let pendingMode = null;
 let idleInterval = null;
 let reconnectTimer = null;
@@ -86,6 +89,7 @@ const cleanupBot = () => {
     chatHandler = null;
     reflexes = null;
     observer = null;
+    speechManager = null;
 };
 
 const scheduleReconnect = (reason) => {
@@ -162,10 +166,12 @@ function createBot() {
 
         skills = new Skills(bot);
         perception = new Perception(bot);
-        planner = new Planner(bot, skills, perception);
-        chatHandler = new ChatHandler(bot, planner);
+        speechManager = new SpeechManager(bot);
+        planner = new Planner(bot, skills, perception, speechManager);
+        speechManager.setPlanner(planner);
+        chatHandler = new ChatHandler(bot, planner, speechManager);
         reflexes = new Reflexes(bot, planner);
-        observer = new Observer(bot);
+        observer = new Observer(bot, planner, speechManager);
 
         chatHandler.init();
         planner.start();
@@ -261,6 +267,9 @@ const handleCommand = async (message) => {
         sendToParent({ type: 'bot_status', data: getStatus() });
     } else if (type === 'memory_reload') {
         memory.reloadFromDisk();
+    } else if (type === 'training_reload') {
+        training.reloadFromDisk();
+        llm.systemPrompt = llm.buildSystemPrompt();
     } else if (type === 'shutdown') {
         shuttingDown = true;
         bot.quit('shutdown');

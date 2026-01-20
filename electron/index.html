@@ -18,6 +18,11 @@
       </div>
     </header>
 
+    <nav class="tabs">
+      <button class="tab-button active" data-tab-target="main">Основное</button>
+      <button class="tab-button" data-tab-target="training">Обучение</button>
+    </nav>
+
     <section class="card">
       <h2>Статус</h2>
       <div class="status-grid">
@@ -279,6 +284,76 @@
       </div>
       <textarea id="memoryText" class="memory-editor" rows="16"></textarea>
       <div id="memoryStatus" class="hint"></div>
+    </section>
+
+    <section class="card" data-tab="training">
+      <h2>Обучение бота</h2>
+      <div class="grid">
+        <label>Быстрая команда
+          <input id="trainingQuickRule" type="text" placeholder="например: не убегай от крипера" />
+        </label>
+        <label>Фидбек: описание<input id="trainingRewardNote" type="text" /></label>
+        <label>Фидбек: балл<input id="trainingRewardScore" type="number" value="1" /></label>
+        <label>Фидбек: правило
+          <select id="trainingRewardRuleType">
+            <option value="auto">авто</option>
+            <option value="must">делай</option>
+            <option value="mustNot">нельзя</option>
+          </select>
+        </label>
+      </div>
+      <div class="actions">
+        <button id="trainingApplyQuickRuleBtn" class="primary">Применить команду</button>
+        <button id="trainingRewardAddBtn" class="ghost">Записать фидбек</button>
+      </div>
+      <div class="grid">
+        <label>Правила "делай"
+          <textarea id="trainingMust" rows="6"></textarea>
+        </label>
+        <label>Правила "нельзя"
+          <textarea id="trainingMustNot" rows="6"></textarea>
+        </label>
+      </div>
+      <label>Заметки
+        <textarea id="trainingNotes" rows="4"></textarea>
+      </label>
+      <label>Дополнительный промт
+        <textarea id="trainingPromptAppend" rows="6"></textarea>
+      </label>
+      <label>Маршрутизация моделей (JSON)
+        <textarea id="trainingModelRouting" rows="6"></textarea>
+      </label>
+      <label>Поощрения/штрафы (последние)
+        <textarea id="trainingRewards" class="log-output" rows="6" readonly></textarea>
+      </label>
+      <label>Сводка поощрений и приоритетов
+        <textarea id="trainingRewardSummary" class="log-output" rows="6" readonly></textarea>
+      </label>
+      <div class="actions">
+        <button id="trainingReloadBtn" class="ghost">Загрузить</button>
+        <button id="trainingSaveBtn" class="primary">Сохранить обучение</button>
+        <button id="trainingSynthesizeBtn" class="ghost">Синтезировать промт</button>
+      </div>
+      <label>Синтез промта + памяти
+        <textarea id="trainingSynthesis" class="memory-editor" rows="10" readonly></textarea>
+      </label>
+      <div class="actions">
+        <button id="trainingLogReloadBtn" class="ghost">Обновить лог</button>
+        <button id="trainingLogClearBtn" class="ghost">Очистить лог</button>
+      </div>
+      <label>Логи обучения
+        <textarea id="trainingLog" class="log-output" rows="8" readonly></textarea>
+      </label>
+      <h3>Поведенческие переключатели</h3>
+      <div class="grid">
+        <label>Убегать от крипера
+          <select id="trainingFleeCreeper">
+            <option value="true">да</option>
+            <option value="false">нет</option>
+          </select>
+        </label>
+      </div>
+      <div id="trainingStatus" class="hint"></div>
     </section>
 
     <section class="card">

@@ -53,6 +53,10 @@ class MemoryStore {
         if (!Array.isArray(output.world.chat)) output.world.chat = [];
         if (!Array.isArray(output.world.events)) output.world.events = [];
         if (!Array.isArray(output.world.placedBlocks)) output.world.placedBlocks = [];
+        for (const player of Object.values(output.players)) {
+            if (!player || typeof player !== 'object') continue;
+            if (!Array.isArray(player.topics)) player.topics = [];
+        }
         return output;
     }
 
@@ -87,10 +91,24 @@ class MemoryStore {
                 trust: 0,
                 lastSeen: null,
                 lastPosition: null,
-                muteUntil: null
+                muteUntil: null,
+                topics: []
             };
         }
         return this.data.players[username];
+    }
+
+    adjustTrust(username, delta) {
+        const p = this.getPlayer(username);
+        const next = Number.isFinite(Number(delta)) ? p.trust + Number(delta) : p.trust;
+        p.trust = Math.max(-10, Math.min(10, next));
+        this.save();
+        return p.trust;
+    }
+
+    getTrust(username) {
+        const p = this.getPlayer(username);
+        return Number.isFinite(Number(p.trust)) ? p.trust : 0;
     }
 
     addFact(username, fact) {
@@ -108,6 +126,42 @@ class MemoryStore {
         }
         this.save();
         return true;
+    }
+
+    addTopic(username, topic) {
+        const p = this.getPlayer(username);
+        const clean = String(topic || '').trim();
+        if (!clean) return false;
+        const normalized = this.normalizeFact(clean);
+        if (normalized.length < 5) return false;
+
+        const now = Date.now();
+        const ttlMs = Number.isFinite(Number(config.behavior.topicTtlMs))
+            ? Number(config.behavior.topicTtlMs)
+            : 1800000;
+        p.topics = (p.topics || []).filter(item => item && now - item.timestamp <= ttlMs);
+        if (p.topics.some(item => item.normalized === normalized)) return false;
+
+        p.topics.push({ text: clean, normalized, timestamp: now });
+        const limit = Number.isFinite(Number(config.behavior.maxTopicsPerPlayer))
+            ? Number(config.behavior.maxTopicsPerPlayer)
+            : 10;
+        if (p.topics.length > limit) {
+            p.topics.splice(0, p.topics.length - limit);
+        }
+        this.save();
+        return true;
+    }
+
+    getTopics(username, limit = 5) {
+        const p = this.getPlayer(username);
+        const now = Date.now();
+        const ttlMs = Number.isFinite(Number(config.behavior.topicTtlMs))
+            ? Number(config.behavior.topicTtlMs)
+            : 1800000;
+        p.topics = (p.topics || []).filter(item => item && now - item.timestamp <= ttlMs);
+        const items = p.topics || [];
+        return items.slice(-limit).map(item => item.text);
     }
 
     removeFact(username, fact) {

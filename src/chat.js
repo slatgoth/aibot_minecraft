@@ -1,13 +1,97 @@
 const { logger } = require('./utils');
 const config = require('./config');
 const memory = require('./memory_store');
+const training = require('./training_store');
+const llm = require('./llm_client');
 
 class ChatHandler {
-    constructor(bot, planner) {
+    constructor(bot, planner, speechManager) {
         this.bot = bot;
         this.planner = planner;
+        this.speechManager = speechManager;
         this.lastUserRequestAt = new Map();
         this.lastGlobalRequestAt = 0;
+    }
+
+    say(text, player = null) {
+        if (!text) return;
+        if (this.speechManager) {
+            this.speechManager.enqueue(String(text), { reason: 'direct', player });
+            return;
+        }
+        this.bot.chat(String(text));
+    }
+
+    extractTopic(message, isAddressed, isMentioned, prefixes) {
+        let text = String(message || '').trim();
+        if (!text) return null;
+        if (isAddressed && Array.isArray(prefixes)) {
+            for (const prefix of prefixes) {
+                const lowerPrefix = String(prefix || '').toLowerCase();
+                if (text.toLowerCase().startsWith(lowerPrefix)) {
+                    text = text.slice(prefix.length).trim();
+                    break;
+                }
+            }
+        }
+        if (isMentioned) {
+            text = text.replace(this.bot.username, '').trim();
+        }
+        const words = text.split(/\s+/).filter(Boolean);
+        if (text.length < 6 || words.length < 2) return null;
+        const stop = ['прыгай', 'иди', 'следуй', 'follow', 'go', 'stop', 'стоп'];
+        if (words.length === 2 && stop.includes(words[0].toLowerCase())) return null;
+        return text;
+    }
+
+    extractRewardFeedback(message, isAddressed, isMentioned, prefixes) {
+        if (!isAddressed && !isMentioned) return null;
+        let text = String(message || '').trim();
+        if (!text) return null;
+        if (isAddressed && Array.isArray(prefixes)) {
+            for (const prefix of prefixes) {
+                const lowerPrefix = String(prefix || '').toLowerCase();
+                if (text.toLowerCase().startsWith(lowerPrefix)) {
+                    text = text.slice(prefix.length).trim();
+                    break;
+                }
+            }
+        }
+        if (isMentioned) {
+            text = text.replace(this.bot.username, '').trim();
+        }
+        if (!text) return null;
+
+        const clampScore = (score) => {
+            const value = Number(score);
+            if (!Number.isFinite(value) || value === 0) return 0;
+            return Math.max(-10, Math.min(10, value));
+        };
+
+        const direct = text.match(/^([+-]\d+)\s*(.*)$/);
+        if (direct) {
+            const score = clampScore(direct[1]);
+            const note = direct[2] ? direct[2].trim() : 'фидбек';
+            return score ? { score, note } : null;
+        }
+
+        const short = text.match(/^(\+{1,3}|-{1,3})\s*(.*)$/);
+        if (short) {
+            const score = short[1].startsWith('+') ? 1 : -1;
+            const note = short[2] ? short[2].trim() : (score > 0 ? 'похвала' : 'штраф');
+            return { score, note };
+        }
+
+        const keyword = text.match(/^(поощрение|reward|feedback|штраф)\s*([+-]?\d+)?\s*(.*)$/i);
+        if (keyword) {
+            const isPenalty = keyword[1].toLowerCase() === 'штраф';
+            const rawScore = keyword[2];
+            const score = clampScore(rawScore || (isPenalty ? -1 : 1));
+            const note = keyword[3] ? keyword[3].trim() : (isPenalty ? 'штраф' : 'поощрение');
+            return score ? { score, note } : null;
+        }
+
+        return null;
     }
 
     isMuteRequest(messageLower, isAddressed, isMentioned) {
@@ -61,20 +145,36 @@ class ChatHandler {
             const isMentioned = message.includes(this.bot.username);
             const allowGeneral = this.planner.mode !== 'manual';
 
+            const topic = this.extractTopic(message, isAddressed, isMentioned, prefixes);
+            if (topic) {
+                memory.addTopic(username, topic);
+            }
+
+            const feedback = this.extractRewardFeedback(message, isAddressed, isMentioned, prefixes);
+            if (feedback) {
+                const entry = training.recordReward({
+                    score: feedback.score,
+                    note: feedback.note,
+                    source: 'chat',
+                    player: username
+                });
+                if (entry) {
+                    llm.systemPrompt = llm.buildSystemPrompt();
+                    this.say(`${username}, фидбек принят (${entry.score >= 0 ? '+' : ''}${entry.score})`, username);
+                }
+                return;
+            }
+
             if (this.isMuteRequest(msgLower, isAddressed, isMentioned)) {
                 const minutes = config.behavior.etiquetteMuteMinutes || 10;
                 memory.setMuted(username, minutes * 60000);
                 if (isAddressed || isMentioned) {
-                    this.bot.chat(`${username}, ок, приторможу на ${minutes} мин`);
+                    this.say(`${username}, ок, приторможу на ${minutes} мин`, username);
                 }
                 return;
             }
 
             if (isAddressed) {
-                if (this.isOnCooldown(username)) {
-                    logger.info(`Chat cooldown active for ${username}`);
-                    return;
-                }
                 this.markRequest(username);
                 const jumpMatch = msgLower.match(/прыгай\s*(\d+)?/);
                 if (jumpMatch) {
@@ -94,38 +194,34 @@ class ChatHandler {
                 if (woodMatch) {
                     const amount = woodMatch[2] ? Number(woodMatch[2]) : 32;
                     this.planner.taskManager.startTask({ type: 'gather_wood', amount });
-                    this.bot.chat(`иду за дровами (${amount})`);
+                    this.say(`иду за дровами (${amount})`, username);
                     return;
                 }
                 if (msgLower.includes('ферм') || msgLower.includes('огород')) {
                     this.planner.taskManager.startTask({ type: 'farm' });
-                    this.bot.chat('занимаюсь фермой');
+                    this.say('занимаюсь фермой', username);
                     return;
                 }
                 if (msgLower.includes('режим выживания')) {
                     this.planner.setMode('survival');
-                    this.bot.chat('ладно, включаю режим выживания. не мешайте, я развиваюсь.');
+                    this.say('ладно, включаю режим выживания. не мешайте, я развиваюсь.', username);
                     return;
                 }
                 if (msgLower.includes('режим автономный') || msgLower.includes('автономный режим') || msgLower.includes('режим авто')) {
                     this.planner.setMode('autonomous');
-                    this.bot.chat('ок, автономный режим. щас наведу суеты.');
+                    this.say('ок, автономный режим. щас наведу суеты.', username);
                     return;
                 }
                 if (msgLower.includes('режим ручной') || msgLower.includes('ручной режим') || msgLower.includes('режим мануальный')) {
                     this.planner.setMode('manual');
-                    this.bot.chat('ручной режим. слушаю команды.');
+                    this.say('ручной режим. слушаю команды.', username);
                     return;
                 }
-                await this.planner.processUserRequest(username, message);
+                await this.planner.processUserRequest(username, message, { reason: 'direct', forceLLM: true });
             } else if (isMentioned) {
                 // Mentioned
-                if (this.isOnCooldown(username)) {
-                    logger.info(`Chat cooldown active for ${username}`);
-                    return;
-                }
                 this.markRequest(username);
-                await this.planner.processUserRequest(username, message);
+                await this.planner.processUserRequest(username, message, { reason: 'mention', forceLLM: true });
             } else if (allowGeneral) {
                 if (memory.isMuted(username)) {
                     logger.info(`Muted user ignored: ${username}`);
@@ -136,7 +232,7 @@ class ChatHandler {
                     return;
                 }
                 this.markRequest(username);
-                await this.planner.processUserRequest(username, message, { passive: true });
+                await this.planner.processUserRequest(username, message, { passive: true, reason: 'social' });
             }
         };
         this.bot.on('chat', this._onChat);

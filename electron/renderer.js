@@ -44,7 +44,17 @@ const fields = {
     currentMode: qs('currentMode'),
     liveMode: qs('liveMode'),
     liveChat: qs('liveChat'),
-    liveCommand: qs('liveCommand')
+    liveCommand: qs('liveCommand'),
+    trainingQuickRule: qs('trainingQuickRule'),
+    trainingMust: qs('trainingMust'),
+    trainingMustNot: qs('trainingMustNot'),
+    trainingNotes: qs('trainingNotes'),
+    trainingPromptAppend: qs('trainingPromptAppend'),
+    trainingModelRouting: qs('trainingModelRouting'),
+    trainingFleeCreeper: qs('trainingFleeCreeper'),
+    trainingRewardNote: qs('trainingRewardNote'),
+    trainingRewardScore: qs('trainingRewardScore'),
+    trainingRewardRuleType: qs('trainingRewardRuleType')
 };
 
 const proxyStatus = qs('proxyStatus');
@@ -65,6 +75,11 @@ const memoryAutoSave = qs('memoryAutoSave');
 const memoryPlayerName = qs('memoryPlayerName');
 const memoryWorldFact = qs('memoryWorldFact');
 const memoryWorldEvent = qs('memoryWorldEvent');
+const trainingStatus = qs('trainingStatus');
+const trainingRewards = qs('trainingRewards');
+const trainingRewardSummary = qs('trainingRewardSummary');
+const trainingLog = qs('trainingLog');
+const trainingSynthesis = qs('trainingSynthesis');
 
 const botLogBuffer = [];
 const proxyLogBuffer = [];
@@ -72,6 +87,7 @@ const maxLogLines = 200;
 let memoryDirty = false;
 let memoryRefreshTimer = null;
 let memorySaveTimer = null;
+let trainingState = null;
 
 const readNumber = (value, fallback) => {
     const parsed = Number(value);
@@ -96,6 +112,19 @@ const parsePrefixes = (raw) => {
         .split(',')
         .map(p => p.trim())
         .filter(Boolean);
+};
+
+const parseLines = (value) => {
+    if (!value) return [];
+    return String(value)
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(Boolean);
+};
+
+const formatLines = (lines) => {
+    if (!Array.isArray(lines)) return '';
+    return lines.filter(Boolean).join('\n');
 };
 
 const normalizeMemory = (data) => {
@@ -171,6 +200,332 @@ const setMemoryRefresh = (enabled) => {
             loadMemory();
         }
     }, 5000);
+};
+
+const normalizeTraining = (data) => {
+    const output = data && typeof data === 'object' ? data : {};
+    output.version = Number.isFinite(Number(output.version)) ? Number(output.version) : 2;
+    if (!output.rules || typeof output.rules !== 'object') output.rules = {};
+    output.rules.must = Array.isArray(output.rules.must) ? output.rules.must : [];
+    output.rules.mustNot = Array.isArray(output.rules.mustNot) ? output.rules.mustNot : [];
+    output.rules.notes = typeof output.rules.notes === 'string' ? output.rules.notes : '';
+    output.promptAppend = typeof output.promptAppend === 'string' ? output.promptAppend : '';
+    output.modelRouting = output.modelRouting && typeof output.modelRouting === 'object' ? output.modelRouting : {};
+    if (!output.behaviorOverrides || typeof output.behaviorOverrides !== 'object') output.behaviorOverrides = {};
+    if (typeof output.behaviorOverrides.fleeCreeper !== 'boolean') {
+        output.behaviorOverrides.fleeCreeper = true;
+    }
+    output.rewards = Array.isArray(output.rewards) ? output.rewards : [];
+    output.ruleWeights = output.ruleWeights && typeof output.ruleWeights === 'object' ? output.ruleWeights : {};
+    output.rewardTotals = output.rewardTotals && typeof output.rewardTotals === 'object'
+        ? output.rewardTotals
+        : summarizeRewards(output.rewards);
+    if (!Number.isFinite(Number(output.rewardTotals.total))) {
+        output.rewardTotals = summarizeRewards(output.rewards);
+    }
+    return output;
+};
+
+const summarizeRewards = (rewards) => {
+    const totals = {
+        total: 0,
+        positive: 0,
+        negative: 0,
+        countPositive: 0,
+        countNegative: 0
+    };
+    if (!Array.isArray(rewards)) return totals;
+    rewards.forEach((entry) => {
+        const score = Number(entry && entry.score);
+        if (!Number.isFinite(score) || score === 0) return;
+        totals.total += score;
+        if (score > 0) {
+            totals.positive += score;
+            totals.countPositive += 1;
+        } else {
+            totals.negative += score;
+            totals.countNegative += 1;
+        }
+    });
+    return totals;
+};
+
+const formatRewards = (rewards) => {
+    if (!Array.isArray(rewards) || rewards.length === 0) return '';
+    return rewards
+        .slice()
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+        .slice(0, 50)
+        .map((entry) => {
+            const ts = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '';
+            const score = Number.isFinite(Number(entry.score)) ? Number(entry.score) : 0;
+            const note = entry.note ? String(entry.note) : '';
+            const source = entry.source ? String(entry.source) : '';
+            const player = entry.player ? String(entry.player) : '';
+            const tail = source ? ` [${source}${player ? `:${player}` : ''}]` : '';
+            return `${ts} | ${score >= 0 ? '+' : ''}${score} | ${note}${tail}`;
+        })
+        .join('\n');
+};
+
+const formatRulePriorities = (training) => {
+    if (!training || !training.rules) return '';
+    const weights = training.ruleWeights || {};
+    const allRules = [...new Set([...(training.rules.must || []), ...(training.rules.mustNot || [])])];
+    const entries = allRules
+        .map(rule => ({
+            rule,
+            weight: Number(weights[rule]) || 0
+        }))
+        .filter(entry => entry.weight !== 0);
+    if (entries.length === 0) return '';
+    entries.sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight));
+    return entries.slice(0, 20).map(entry => {
+        const weight = entry.weight;
+        return `${weight >= 0 ? '+' : ''}${weight} | ${entry.rule}`;
+    }).join('\n');
+};
+
+const formatRewardSummary = (training) => {
+    if (!training) return '';
+    const totals = summarizeRewards(training.rewards);
+    const lines = [];
+    if (totals.total !== 0 || totals.countPositive || totals.countNegative) {
+        lines.push(`итог: ${totals.total >= 0 ? '+' : ''}${totals.total} (+=${totals.positive} / -=${Math.abs(totals.negative)})`);
+    }
+    const priorities = formatRulePriorities(training);
+    if (priorities) {
+        lines.push('приоритеты:');
+        lines.push(priorities);
+    }
+    return lines.join('\n');
+};
+
+const detectRewardRule = (note, score, ruleType) => {
+    let text = String(note || '').trim();
+    if (!text) return null;
+    let resolvedType = ruleType || 'auto';
+    const lower = text.toLowerCase();
+    if (lower.startsWith('делай:')) {
+        resolvedType = 'must';
+        text = text.slice(6).trim();
+    } else if (lower.startsWith('нельзя:')) {
+        resolvedType = 'mustNot';
+        text = text.slice(7).trim();
+    } else if (lower.startsWith('не:')) {
+        resolvedType = 'mustNot';
+        text = text.slice(3).trim();
+    } else if (lower.startsWith('do:')) {
+        resolvedType = 'must';
+        text = text.slice(3).trim();
+    } else if (lower.startsWith('dont:') || lower.startsWith("don't:")) {
+        resolvedType = 'mustNot';
+        text = text.replace(/^don'?t:/i, '').trim();
+    }
+    const startsNegation = /^не\s+/i.test(text);
+    if (resolvedType === 'auto') {
+        if (score < 0) {
+            resolvedType = 'mustNot';
+        } else if (startsNegation) {
+            resolvedType = 'mustNot';
+        } else {
+            resolvedType = 'must';
+        }
+    }
+    if (resolvedType === 'must' && startsNegation) {
+        text = text.replace(/^не\s+/i, '').trim();
+    } else if (resolvedType === 'mustNot' && !startsNegation) {
+        text = `не ${text}`;
+    }
+    const ignored = new Set(['похвала', 'штраф', 'фидбек', 'поощрение', 'reward', 'feedback']);
+    if (ignored.has(text.toLowerCase())) return null;
+    if (!text) return null;
+    return { ruleText: text, ruleType: resolvedType };
+};
+
+const applyRewardToRules = (training, entry, ruleType) => {
+    if (!training || !entry) return;
+    const detected = detectRewardRule(entry.note, entry.score, ruleType);
+    if (!detected || !detected.ruleText) return;
+    const must = new Set(training.rules.must || []);
+    const mustNot = new Set(training.rules.mustNot || []);
+    if (detected.ruleType === 'must') {
+        must.add(detected.ruleText);
+        mustNot.delete(detected.ruleText);
+    } else {
+        mustNot.add(detected.ruleText);
+        must.delete(detected.ruleText);
+    }
+    training.rules.must = Array.from(must);
+    training.rules.mustNot = Array.from(mustNot);
+    if (!training.ruleWeights || typeof training.ruleWeights !== 'object') training.ruleWeights = {};
+    const prev = Number(training.ruleWeights[detected.ruleText]) || 0;
+    const delta = Number(entry.score) || 0;
+    training.ruleWeights[detected.ruleText] = prev + delta;
+};
+
+const fillTrainingForm = (data) => {
+    const normalized = normalizeTraining(data);
+    trainingState = normalized;
+    fields.trainingMust.value = formatLines(normalized.rules.must);
+    fields.trainingMustNot.value = formatLines(normalized.rules.mustNot);
+    fields.trainingNotes.value = normalized.rules.notes || '';
+    fields.trainingPromptAppend.value = normalized.promptAppend || '';
+    fields.trainingFleeCreeper.value = String(normalized.behaviorOverrides.fleeCreeper !== false);
+    fields.trainingModelRouting.value = JSON.stringify(normalized.modelRouting || {}, null, 2);
+    trainingRewards.value = formatRewards(normalized.rewards);
+    trainingRewardSummary.value = formatRewardSummary(normalized);
+    if (fields.trainingRewardRuleType) {
+        fields.trainingRewardRuleType.value = 'auto';
+    }
+};
+
+const loadTraining = async () => {
+    const result = await window.api.getTraining();
+    if (!result.ok) {
+        trainingStatus.textContent = result.error || 'ошибка загрузки обучения';
+        return;
+    }
+    fillTrainingForm(result.data);
+    trainingStatus.textContent = `загружено | ${result.path}`;
+};
+
+const buildTrainingPayload = () => {
+    const payload = normalizeTraining(trainingState);
+    payload.rules = {
+        must: parseLines(fields.trainingMust.value),
+        mustNot: parseLines(fields.trainingMustNot.value),
+        notes: fields.trainingNotes.value.trim()
+    };
+    const allowedRules = new Set([...payload.rules.must, ...payload.rules.mustNot]);
+    const cleanedWeights = {};
+    Object.entries(payload.ruleWeights || {}).forEach(([rule, weight]) => {
+        if (!allowedRules.has(rule)) return;
+        const numeric = Number(weight);
+        cleanedWeights[rule] = Number.isFinite(numeric) ? numeric : 0;
+    });
+    payload.ruleWeights = cleanedWeights;
+    payload.promptAppend = fields.trainingPromptAppend.value.trim();
+    payload.behaviorOverrides = {
+        fleeCreeper: fields.trainingFleeCreeper.value === 'true'
+    };
+    let routing = {};
+    const rawRouting = fields.trainingModelRouting.value.trim();
+    if (rawRouting) {
+        try {
+            routing = JSON.parse(rawRouting);
+        } catch (e) {
+            throw new Error(`ошибка JSON маршрутизации: ${e.message}`);
+        }
+    }
+    payload.modelRouting = routing;
+    payload.rewardTotals = summarizeRewards(payload.rewards);
+    return payload;
+};
+
+const saveTraining = async () => {
+    let payload;
+    try {
+        payload = buildTrainingPayload();
+    } catch (e) {
+        trainingStatus.textContent = e.message;
+        return;
+    }
+    const result = await window.api.saveTraining(payload);
+    if (!result.ok) {
+        trainingStatus.textContent = result.error || 'ошибка сохранения обучения';
+        return;
+    }
+    trainingStatus.textContent = `сохранено | ${result.path}`;
+    trainingState = payload;
+    trainingRewards.value = formatRewards(payload.rewards);
+    trainingRewardSummary.value = formatRewardSummary(payload);
+    await window.api.botCommand('training_reload', {});
+};
+
+const refreshTrainingLog = async () => {
+    const result = await window.api.getTrainingLog();
+    if (!result.ok) {
+        trainingStatus.textContent = result.error || 'ошибка логов обучения';
+        return;
+    }
+    trainingLog.value = result.text || '';
+    trainingStatus.textContent = 'логи обновлены';
+};
+
+const clearTrainingLog = async () => {
+    const result = await window.api.clearTrainingLog();
+    if (!result.ok) {
+        trainingStatus.textContent = result.error || 'ошибка очистки логов';
+        return;
+    }
+    trainingLog.value = '';
+    trainingStatus.textContent = 'логи очищены';
+};
+
+const synthesizeTraining = async () => {
+    const result = await window.api.synthesizeTraining();
+    if (!result.ok) {
+        trainingStatus.textContent = result.error || 'ошибка синтеза';
+        return;
+    }
+    trainingSynthesis.value = result.combined || '';
+    trainingStatus.textContent = 'синтез обновлен';
+};
+
+const addReward = async () => {
+    const note = fields.trainingRewardNote.value.trim();
+    const score = readNumber(fields.trainingRewardScore.value, 0);
+    const ruleType = fields.trainingRewardRuleType ? fields.trainingRewardRuleType.value : 'auto';
+    if (!note) return;
+    const payload = buildTrainingPayload();
+    payload.rewards = Array.isArray(payload.rewards) ? payload.rewards : [];
+    const entry = { timestamp: Date.now(), score, note, source: 'ui', ruleType };
+    payload.rewards.push(entry);
+    applyRewardToRules(payload, entry, ruleType);
+    payload.rewardTotals = summarizeRewards(payload.rewards);
+    const result = await window.api.saveTraining(payload);
+    if (!result.ok) {
+        trainingStatus.textContent = result.error || 'ошибка сохранения поощрения';
+        return;
+    }
+    trainingState = payload;
+    trainingRewards.value = formatRewards(payload.rewards);
+    trainingRewardSummary.value = formatRewardSummary(payload);
+    fields.trainingRewardNote.value = '';
+    fields.trainingRewardScore.value = '1';
+    if (fields.trainingRewardRuleType) {
+        fields.trainingRewardRuleType.value = 'auto';
+    }
+    trainingStatus.textContent = 'поощрение сохранено';
+    await window.api.botCommand('training_reload', {});
+};
+
+const applyQuickRule = async () => {
+    const text = fields.trainingQuickRule.value.trim();
+    if (!text) return;
+    const lower = text.toLowerCase();
+    let payload;
+    try {
+        payload = buildTrainingPayload();
+    } catch (e) {
+        trainingStatus.textContent = e.message;
+        return;
+    }
+    const must = new Set(payload.rules.must);
+    const mustNot = new Set(payload.rules.mustNot);
+    if (lower.startsWith('не ')) {
+        mustNot.add(text);
+    } else {
+        must.add(text);
+    }
+    payload.rules.must = Array.from(must);
+    payload.rules.mustNot = Array.from(mustNot);
+    fields.trainingMust.value = formatLines(payload.rules.must);
+    fields.trainingMustNot.value = formatLines(payload.rules.mustNot);
+    trainingState = payload;
+    fields.trainingQuickRule.value = '';
+    await saveTraining();
 };
 
 const fillForm = (config, defaults) => {
@@ -282,7 +637,8 @@ const updateModelList = (models) => {
         option.value = '';
         option.textContent = 'моделей нет';
         modelSelect.appendChild(option);
-        modelHint.textContent = 'Нет моделей. Рекомендуется: ollama pull deepseek-llm';
+        const preferred = fields.ollamaModel.value.trim() || 'gpt-oss:20b';
+        modelHint.textContent = `Нет моделей. Рекомендуется: ollama pull ${preferred}`;
         return;
     }
     models.forEach(model => {
@@ -291,6 +647,13 @@ const updateModelList = (models) => {
         option.textContent = model;
         modelSelect.appendChild(option);
     });
+    const preferred = fields.ollamaModel.value.trim();
+    if (preferred) {
+        const exact = models.find(m => m === preferred);
+        const lower = preferred.toLowerCase();
+        const alt = exact || models.find(m => m.toLowerCase() === lower) || models.find(m => m.includes(preferred));
+        if (alt) modelSelect.value = alt;
+    }
     modelHint.textContent = `Найдено моделей: ${models.length}`;
 };
 
@@ -341,6 +704,7 @@ const savePrompt = async () => {
 const saveAll = async () => {
     await saveConfig();
     await savePrompt();
+    await saveTraining();
 };
 
 const updateBotStatus = (status) => {
@@ -411,12 +775,35 @@ const applyUsername = async () => {
     fields.newUsername.value = '';
 };
 
+const setupTabs = () => {
+    const tabs = Array.from(document.querySelectorAll('[data-tab-target]'));
+    const cards = Array.from(document.querySelectorAll('.card'));
+    cards.forEach((card) => {
+        if (!card.dataset.tab) {
+            card.dataset.tab = 'main';
+        }
+    });
+    const setActive = (target) => {
+        tabs.forEach(btn => btn.classList.toggle('active', btn.dataset.tabTarget === target));
+        cards.forEach((card) => {
+            card.hidden = card.dataset.tab !== target;
+        });
+    };
+    tabs.forEach((btn) => {
+        btn.addEventListener('click', () => setActive(btn.dataset.tabTarget));
+    });
+    setActive('main');
+};
+
 const init = async () => {
     const configResult = await window.api.loadConfig();
     fillForm(configResult.config, configResult.defaults);
     await loadPrompt();
     await refreshModels();
     await refreshProcessStatuses();
+    await loadTraining();
+    await refreshTrainingLog();
+    setupTabs();
 };
 
 qs('saveConfigBtn').addEventListener('click', saveConfig);
@@ -464,7 +851,8 @@ qs('useModelBtn').addEventListener('click', () => {
     }
 });
 qs('copyPullBtn').addEventListener('click', async () => {
-    const command = 'ollama pull deepseek-llm';
+    const target = fields.ollamaModel.value.trim() || 'gpt-oss:20b';
+    const command = `ollama pull ${target}`;
     try {
         await navigator.clipboard.writeText(command);
         modelHint.textContent = 'Команда скопирована в буфер обмена.';
@@ -553,6 +941,14 @@ qs('memoryAddEventBtn').addEventListener('click', async () => {
     memoryWorldEvent.value = '';
     await saveMemory(data);
 });
+
+qs('trainingReloadBtn').addEventListener('click', loadTraining);
+qs('trainingSaveBtn').addEventListener('click', saveTraining);
+qs('trainingLogReloadBtn').addEventListener('click', refreshTrainingLog);
+qs('trainingLogClearBtn').addEventListener('click', clearTrainingLog);
+qs('trainingSynthesizeBtn').addEventListener('click', synthesizeTraining);
+qs('trainingRewardAddBtn').addEventListener('click', addReward);
+qs('trainingApplyQuickRuleBtn').addEventListener('click', applyQuickRule);
 
 memoryText.addEventListener('input', () => {
     memoryDirty = true;

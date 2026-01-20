@@ -12,6 +12,8 @@ const viaProxyUserRoot = path.join(userDataRoot, 'viaproxy');
 const configPath = path.join(userDataRoot, 'config.user.json');
 const promptDefaultPath = path.join(app.getAppPath(), 'prompts', 'system_prompt.default.txt');
 const promptUserPath = path.join(userDataRoot, 'system_prompt.txt');
+const trainingPath = path.join(userDataRoot, 'training.json');
+const trainingLogPath = path.join(userDataRoot, 'training.log');
 
 const getResourceRoot = () => (app.isPackaged ? process.resourcesPath : app.getAppPath());
 const resourceViaProxyRoot = app.isPackaged
@@ -54,6 +56,54 @@ const normalizeMemory = (data) => {
     return output;
 };
 
+const normalizeTraining = (data) => {
+    const output = data && typeof data === 'object' ? data : {};
+    output.version = Number.isFinite(Number(output.version)) ? Number(output.version) : 2;
+    if (!output.rules || typeof output.rules !== 'object') output.rules = {};
+    output.rules.must = Array.isArray(output.rules.must) ? output.rules.must : [];
+    output.rules.mustNot = Array.isArray(output.rules.mustNot) ? output.rules.mustNot : [];
+    output.rules.notes = typeof output.rules.notes === 'string' ? output.rules.notes : '';
+    output.promptAppend = typeof output.promptAppend === 'string' ? output.promptAppend : '';
+    output.modelRouting = output.modelRouting && typeof output.modelRouting === 'object' ? output.modelRouting : {};
+    if (!output.behaviorOverrides || typeof output.behaviorOverrides !== 'object') output.behaviorOverrides = {};
+    if (typeof output.behaviorOverrides.fleeCreeper !== 'boolean') {
+        output.behaviorOverrides.fleeCreeper = true;
+    }
+    output.rewards = Array.isArray(output.rewards) ? output.rewards : [];
+    output.ruleWeights = output.ruleWeights && typeof output.ruleWeights === 'object' ? output.ruleWeights : {};
+    output.rewardTotals = output.rewardTotals && typeof output.rewardTotals === 'object'
+        ? output.rewardTotals
+        : summarizeRewards(output.rewards);
+    if (!Number.isFinite(Number(output.rewardTotals.total))) {
+        output.rewardTotals = summarizeRewards(output.rewards);
+    }
+    return output;
+};
+
+const summarizeRewards = (rewards) => {
+    const totals = {
+        total: 0,
+        positive: 0,
+        negative: 0,
+        countPositive: 0,
+        countNegative: 0
+    };
+    if (!Array.isArray(rewards)) return totals;
+    rewards.forEach((entry) => {
+        const score = Number(entry && entry.score);
+        if (!Number.isFinite(score) || score === 0) return;
+        totals.total += score;
+        if (score > 0) {
+            totals.positive += score;
+            totals.countPositive += 1;
+        } else {
+            totals.negative += score;
+            totals.countNegative += 1;
+        }
+    });
+    return totals;
+};
+
 const getMemoryPath = () => {
     return (currentConfig.paths && currentConfig.paths.memory) || config.paths.memory;
 };
@@ -69,6 +119,54 @@ const readMemoryFile = () => {
         return { ok: true, path: memoryPath, data: normalizeMemory(parsed) };
     } catch (e) {
         return { ok: false, error: e.message, path: memoryPath, data: normalizeMemory({}) };
+    }
+};
+
+const readTrainingFile = () => {
+    try {
+        if (!fs.existsSync(trainingPath)) {
+            return { ok: true, path: trainingPath, data: normalizeTraining({}) };
+        }
+        const raw = fs.readFileSync(trainingPath, 'utf8');
+        const parsed = JSON.parse(raw);
+        return { ok: true, path: trainingPath, data: normalizeTraining(parsed) };
+    } catch (e) {
+        return { ok: false, error: e.message, path: trainingPath, data: normalizeTraining({}) };
+    }
+};
+
+const writeTrainingFile = (payload) => {
+    const normalized = normalizeTraining(payload);
+    writeJsonSafe(trainingPath, normalized);
+    return normalized;
+};
+
+const appendTrainingLog = (text) => {
+    if (!text) return;
+    const timestamp = new Date().toISOString();
+    const line = `[${timestamp}] ${text}\n`;
+    fs.mkdirSync(path.dirname(trainingLogPath), { recursive: true });
+    fs.appendFileSync(trainingLogPath, line, 'utf8');
+};
+
+const readTrainingLog = () => {
+    try {
+        if (!fs.existsSync(trainingLogPath)) {
+            return { ok: true, text: '' };
+        }
+        return { ok: true, text: fs.readFileSync(trainingLogPath, 'utf8') };
+    } catch (e) {
+        return { ok: false, error: e.message, text: '' };
+    }
+};
+
+const clearTrainingLog = () => {
+    try {
+        fs.mkdirSync(path.dirname(trainingLogPath), { recursive: true });
+        fs.writeFileSync(trainingLogPath, '', 'utf8');
+        return { ok: true };
+    } catch (e) {
+        return { ok: false, error: e.message };
     }
 };
 
@@ -291,6 +389,88 @@ const listModelsViaCli = async () => {
             resolve({ models });
         });
     });
+};
+
+const buildTrainingPrompt = (training) => {
+    const lines = [];
+    const weights = training.ruleWeights || {};
+    const renderRule = (rule) => {
+        const weight = Number(weights[rule]) || 0;
+        if (!weight) return `- ${rule}`;
+        return `- (${weight >= 0 ? '+' : ''}${weight}) ${rule}`;
+    };
+    if (training.rules.must.length > 0) {
+        lines.push('Нужно:');
+        training.rules.must.forEach((rule) => lines.push(renderRule(rule)));
+    }
+    if (training.rules.mustNot.length > 0) {
+        lines.push('Нельзя:');
+        training.rules.mustNot.forEach((rule) => lines.push(renderRule(rule)));
+    }
+    if (training.rules.notes) {
+        lines.push('Заметки:');
+        lines.push(training.rules.notes);
+    }
+    if (training.promptAppend) {
+        lines.push('Дополнительный промт:');
+        lines.push(training.promptAppend);
+    }
+    const totals = summarizeRewards(training.rewards);
+    if (totals.total !== 0 || totals.countPositive || totals.countNegative) {
+        lines.push(`Сводка поощрений: ${totals.total >= 0 ? '+' : ''}${totals.total} (+=${totals.positive} / -=${Math.abs(totals.negative)})`);
+    }
+    if (Array.isArray(training.rewards) && training.rewards.length > 0) {
+        const recent = training.rewards
+            .slice()
+            .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+            .slice(0, 10);
+        lines.push('Поощрения/штрафы (последние):');
+        recent.forEach((entry) => {
+            const score = Number.isFinite(Number(entry.score)) ? Number(entry.score) : 0;
+            const note = entry.note ? String(entry.note) : '';
+            lines.push(`- ${score >= 0 ? '+' : ''}${score}: ${note}`);
+        });
+    }
+    return lines.join('\n');
+};
+
+const summarizeMemory = (memory) => {
+    const data = normalizeMemory(memory || {});
+    const lines = [];
+    const facts = data.world.facts.slice(-10).map(item => item.text).filter(Boolean);
+    const events = data.world.events.slice(-6).map(item => item.text).filter(Boolean);
+    if (facts.length > 0) {
+        lines.push('Факты мира:');
+        facts.forEach((fact) => lines.push(`- ${fact}`));
+    }
+    if (events.length > 0) {
+        lines.push('События мира:');
+        events.forEach((event) => lines.push(`- ${event}`));
+    }
+    const players = Object.entries(data.players || {})
+        .slice(0, 5)
+        .map(([name, info]) => ({
+            name,
+            facts: Array.isArray(info.facts) ? info.facts.slice(-3) : []
+        }))
+        .filter(entry => entry.facts.length > 0);
+    if (players.length > 0) {
+        lines.push('Игроки:');
+        players.forEach((entry) => {
+            lines.push(`- ${entry.name}: ${entry.facts.join('; ')}`);
+        });
+    }
+    return lines.join('\n');
+};
+
+const synthesizeTrainingPrompt = () => {
+    const prompt = readFileSafe(promptUserPath) || readFileSafe(promptDefaultPath) || '';
+    const training = normalizeTraining(readTrainingFile().data);
+    const memory = readMemoryFile().data;
+    const trainingPrompt = buildTrainingPrompt(training);
+    const memorySummary = summarizeMemory(memory);
+    const combined = [prompt, trainingPrompt, memorySummary].filter(Boolean).join('\n\n');
+    return { ok: true, combined, prompt, trainingPrompt, memorySummary };
 };
 
 const checkTcp = async (host, port) => {
@@ -651,4 +831,33 @@ ipcMain.handle('save-memory', async (_, payload) => {
     } catch (e) {
         return { ok: false, error: e.message, path: memoryPath };
     }
+});
+
+ipcMain.handle('get-training', async () => {
+    return readTrainingFile();
+});
+
+ipcMain.handle('save-training', async (_, payload) => {
+    try {
+        const normalized = writeTrainingFile(payload);
+        const mustCount = normalized.rules.must.length;
+        const mustNotCount = normalized.rules.mustNot.length;
+        const flee = normalized.behaviorOverrides.fleeCreeper !== false ? 'on' : 'off';
+        appendTrainingLog(`save rules=${mustCount}/${mustNotCount} fleeCreeper=${flee}`);
+        return { ok: true, path: trainingPath, data: normalized };
+    } catch (e) {
+        return { ok: false, error: e.message, path: trainingPath };
+    }
+});
+
+ipcMain.handle('get-training-log', async () => {
+    return readTrainingLog();
+});
+
+ipcMain.handle('clear-training-log', async () => {
+    return clearTrainingLog();
+});
+
+ipcMain.handle('synthesize-training', async () => {
+    return synthesizeTrainingPrompt();
 });
